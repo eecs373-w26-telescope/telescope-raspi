@@ -1,0 +1,34 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "dev",
+      "displayName": "Dev",
+      "binaryDir": "${sourceDir}/cmake-build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "deploy",
+      "displayName": "Deploy",
+      "binaryDir": "${sourceDir}/cmake-deploy",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PLATFORM": "DRM",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "deploy",
+      "configurePreset": "deploy"
+    }
+  ]
+}
