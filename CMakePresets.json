@@ -2,8 +2,8 @@
   "version": 6,
   "configurePresets": [
     {
-      "name": "dev",
-      "displayName": "Dev",
+      "name": "debug",
+      "displayName": "Debug",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -11,8 +11,8 @@
       }
     },
     {
-      "name": "deploy",
-      "displayName": "Deploy",
+      "name": "release",
+      "displayName": "Release",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
@@ -23,12 +23,12 @@
   ],
   "buildPresets": [
     {
-      "name": "dev",
-      "configurePreset": "dev"
+      "name": "debug",
+      "configurePreset": "debug"
     },
     {
-      "name": "deploy",
-      "configurePreset": "deploy"
+      "name": "release",
+      "configurePreset": "release"
     }
   ]
 }
