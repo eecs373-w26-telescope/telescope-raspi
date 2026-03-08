@@ -4,7 +4,7 @@
     {
       "name": "dev",
       "displayName": "Dev",
-      "binaryDir": "${sourceDir}/cmake-build",
+      "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
@@ -13,7 +13,7 @@
     {
       "name": "deploy",
       "displayName": "Deploy",
-      "binaryDir": "${sourceDir}/cmake-deploy",
+      "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "PLATFORM": "DRM",
