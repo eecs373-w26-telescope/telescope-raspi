@@ -1,4 +1,4 @@
-# Telescope HUD using Raylib
+# Raylib-based Telescope HUD
 
 ## Dependencies
 
