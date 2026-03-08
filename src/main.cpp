@@ -17,6 +17,7 @@ static void signalHandler(int) {
 int main() {
 	std::signal(SIGINT, signalHandler);
 	std::signal(SIGTERM, signalHandler);
+	std::signal(SIGTSTP, signalHandler);
 
 	SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
 	InitWindow(screenRes, screenRes, "EECS373 - Telescope");
