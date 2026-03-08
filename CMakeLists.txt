@@ -7,6 +7,7 @@ set(CMAKE_C_STANDARD 17)
 
 # Auto-fetch raylib
 include(FetchContent)
+set(FETCHCONTENT_QUIET OFF)
 FetchContent_Declare(
     raylib
     GIT_REPOSITORY https://github.com/raysan5/raylib.git
