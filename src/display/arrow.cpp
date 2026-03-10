@@ -2,7 +2,7 @@
 #include "globals.h"
 #include "raymath.h"
 
-static void DrawArrow(Vector2 start, Vector2 end, float thickness, float headSize, Color color) {
+void DrawArrow(Vector2 start, Vector2 end, float thickness, float headSize, Color color) {
 	DrawLineEx(start, end, thickness, color);
 
 	Vector2 direction = Vector2Subtract(end, start);
