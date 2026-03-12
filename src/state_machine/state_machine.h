@@ -4,6 +4,7 @@
 
 enum class TelescopeState : uint8_t {
 	INIT,
+	SETUP,
 	IDLE,
 	SEARCH,
 	FOUND,

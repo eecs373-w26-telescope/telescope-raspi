@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -euo pipefail
+set -euxo pipefail
 
 OS_ID=$(. /etc/os-release && echo "$ID")
 

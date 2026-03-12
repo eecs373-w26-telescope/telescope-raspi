@@ -10,7 +10,11 @@ void UpdateStateMachine() {
 	switch (current_state) {
 
 	case TelescopeState::INIT:
-		// TODO: transition to IDLE when hardware is ready
+		// hardware initiazation, gps fix, imu direction, etc.
+		break;
+
+	case TelescopeState::SETUP:
+		// configure telescope pamamaters
 		break;
 
 	case TelescopeState::IDLE:
