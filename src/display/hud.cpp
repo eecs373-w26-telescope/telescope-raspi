@@ -21,6 +21,7 @@ static void UpdateMockData() {
 // ---- End mock data ----
 
 static constexpr float HUD_PADDING = 16.0f;
+static uint32_t last_imu_count = 0;
 static constexpr float ARROW_RADIUS = 36.0f;
 static constexpr float PING_FLASH_DURATION = 0.5f;
 
@@ -53,6 +54,34 @@ static void DrawConnectionIndicator() {
 
 	Color dot_color = (ping_flash_timer > 0.0f) ? GREEN : DARKGRAY;
 	DrawCircleV({x, y}, 6.0f, dot_color);
+}
+
+static void DrawBaseCompassHeading() {
+	float heading_deg;
+	uint32_t current_imu_count;
+	{
+		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
+		heading_deg = static_cast<float>(g_shared_state.imu.heading) / 16.0f;
+		current_imu_count = g_shared_state.imu_update_count;
+	}
+
+	bool has_data = (current_imu_count > 0);
+	Color text_color = has_data ? displayColor : DARKGRAY;
+
+	char buf[16];
+	if (has_data) {
+		snprintf(buf, sizeof(buf), "%03.0f", heading_deg);
+	} else {
+		snprintf(buf, sizeof(buf), "---");
+	}
+
+	int fontSize = 20;
+	int textW = MeasureText(buf, fontSize);
+	float x = HUD_PADDING;
+	float y = screenRes - HUD_PADDING - fontSize;
+	DrawText(buf, static_cast<int>(x), static_cast<int>(y), fontSize, text_color);
+
+	DrawText("deg", static_cast<int>(x + textW + 4), static_cast<int>(y + 4), 14, text_color);
 }
 
 void DrawHud() {
@@ -100,4 +129,5 @@ void DrawHud() {
 	DrawCircleLines(screenRes / 2, screenRes / 2, circleR + 1, displayColor);
 
 	DrawConnectionIndicator();
+	DrawBaseCompassHeading();
 }
