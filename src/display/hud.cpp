@@ -126,7 +126,7 @@ void DrawHud() {
 	         fontSize, displayColor);
 
 	// Circle border
-	DrawCircleLines(screenRes / 2, screenRes / 2, circleR + 1, displayColor);
+	DrawCircleLines(screenRes / 2, screenRes / 2, circleR , displayColor);
 
 	DrawConnectionIndicator();
 	DrawBaseCompassHeading();
