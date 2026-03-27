@@ -75,7 +75,7 @@ static void DrawBaseCompassHeading() {
 		snprintf(buf, sizeof(buf), "---");
 	}
 
-	int fontSize = 20;
+	int fontSize = 40;
 	int textW = MeasureText(buf, fontSize);
 	float x = HUD_PADDING;
 	float y = screenRes - HUD_PADDING - fontSize;
