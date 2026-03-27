@@ -2,4 +2,4 @@
 
 set -euxo pipefail
 
-rm -rf cmake-build cmake-deploy
+rm -rf build

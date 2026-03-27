@@ -8,11 +8,45 @@ constexpr uint8_t SYNC_HI = 0xAB;
 constexpr uint8_t SYNC_LO = 0xCD;
 constexpr uint8_t MAX_PAYLOAD_SIZE = 128;
 
+// Nucleo -> Raspi: 0x01-0x0F
+// Raspi -> Nucleo: 0x10-0x1F
+// Request/Response: 0x20-0x2F
+// Bidirectional:    0xFF
 enum PacketId : uint8_t {
-	PACKET_GPS     = 0x01,
-	PACKET_ENCODER = 0x02,
-	PACKET_TOUCH   = 0x03,
-	PACKET_DEBUG   = 0xFF,
+	PACKET_GPS          = 0x01,
+	PACKET_ENCODER      = 0x02,
+	PACKET_TOUCH_EVENT  = 0x03,
+	PACKET_IMU          = 0x04,
+	PACKET_STATE_SYNC   = 0x10,
+	PACKET_DSO_REQUEST  = 0x20,
+	PACKET_DSO_RESPONSE = 0x21,
+	PACKET_DEBUG        = 0xFF,
+};
+
+enum TouchEventType : uint8_t {
+	TOUCH_DSO_SELECTED   = 0,
+	TOUCH_SEARCH_START   = 1,
+	TOUCH_SEARCH_CANCEL  = 2,
+	TOUCH_MODE_CHANGE    = 3,
+};
+
+enum DsoObjectType : uint8_t {
+	DSO_GALAXY           = 0,
+	DSO_NEBULA           = 1,
+	DSO_OPEN_CLUSTER     = 2,
+	DSO_GLOBULAR_CLUSTER = 3,
+	DSO_PLANETARY_NEBULA = 4,
+};
+
+enum DsoRequestType : uint8_t {
+	DSO_BY_INDEX          = 0,
+	DSO_BY_CATALOG_NUMBER = 1,
+};
+
+enum DsoStatus : uint8_t {
+	DSO_OK        = 0,
+	DSO_NOT_FOUND = 1,
+	DSO_SD_ERROR  = 2,
 };
 
 #pragma pack(push, 1)
@@ -38,10 +72,46 @@ struct EncoderPayload {
 	uint16_t elevation_raw;
 };
 
-struct TouchPayload {
-	uint16_t x;
-	uint16_t y;
-	uint8_t  pressed;
+struct TouchEventPayload {
+	uint8_t  event_type;
+	uint16_t param;
+	uint8_t  reserved[2];
+};
+
+struct ImuPayload {
+	int16_t  heading;
+	int16_t  roll;
+	int16_t  pitch;
+	int16_t  quat_w;
+	int16_t  quat_x;
+	int16_t  quat_y;
+	int16_t  quat_z;
+	uint8_t  calibration;
+	int8_t   temperature;
+};
+
+struct StateSyncPayload {
+	uint8_t  state;
+	uint8_t  flags;
+	uint16_t sequence;
+};
+
+struct DsoRequestPayload {
+	uint8_t  request_type;
+	uint16_t request_id;
+	uint16_t key;
+};
+
+struct DsoResponsePayload {
+	uint16_t request_id;
+	uint8_t  status;
+	uint16_t catalog_number;
+	uint8_t  object_type;
+	int32_t  ra_mas;
+	int32_t  dec_mas;
+	int16_t  magnitude_e2;
+	uint8_t  constellation;
+	char     name[16];
 };
 
 struct DebugPayload {
