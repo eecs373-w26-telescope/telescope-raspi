@@ -8,6 +8,7 @@
 
 int screenRes = 768;
 Color displayColor = WHITE;
+Font monoFont = {0};
 
 static std::atomic<bool> shouldQuit{false};
 
@@ -23,6 +24,9 @@ int main() {
 	SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
 	InitWindow(screenRes, screenRes, "EECS373 - Telescope");
 
+	monoFont = LoadFontEx("resources/JetBrainsMono-Regular.ttf", 96, nullptr, 0);
+	SetTextureFilter(monoFont.texture, TEXTURE_FILTER_POINT);
+
 	StartSerialReader("/dev/ttyS0");
 
 	InitDisplay();
@@ -33,6 +37,7 @@ int main() {
 
 	StopSerialReader();
 	CleanupDisplay();
+	UnloadFont(monoFont);
 	CloseWindow();
 	return 0;
 }

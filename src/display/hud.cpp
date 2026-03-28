@@ -1,43 +1,138 @@
 #include "display/hud.h"
 #include "display/arrow.h"
 #include "protocol/shared_state.h"
+#include "state_machine/state_machine.h"
 #include "globals.h"
 #include "raylib.h"
-#include "raymath.h"
 #include <cmath>
 #include <cstdio>
 #include <mutex>
 
-// ---- Mock data (replace with real sensor input) ----
+// ---- Mock target data (replace with real search state) ----
 static float mock_direction = 0.0f;
-static float mock_distance_deg = 45.0f;
+static float mock_distance_deg = 0.0f;
 static float mock_time = 0.0f;
+static bool mock_has_target = false;
 
 static void UpdateMockData() {
 	mock_time += GetFrameTime();
-	mock_direction = fmodf(mock_time * 0.5f, 2.0f * PI);
-	mock_distance_deg = 20.0f + 15.0f * sinf(mock_time * 0.3f);
+	if (IsKeyPressed(KEY_T)) mock_has_target = !mock_has_target;
+	if (mock_has_target) {
+		mock_direction = fmodf(mock_time * 0.5f, 2.0f * PI);
+		mock_distance_deg = 20.0f + 15.0f * sinf(mock_time * 0.3f);
+	}
 }
 // ---- End mock data ----
 
-static constexpr float HUD_PADDING = 16.0f;
-static uint32_t last_imu_count = 0;
-static constexpr float ARROW_RADIUS = 36.0f;
+static constexpr float PAD = 3.0f;
 static constexpr float PING_FLASH_DURATION = 0.5f;
+static constexpr float FONT_S = 40.0f;
+static constexpr float FONT_L = 44.0f;
+static constexpr float FONT_XL = 50.0f;
+static constexpr float SPACING = 0.0f;
+static constexpr float LINE_THICK = 1.5f;
 
+static Color dim_color;
 static uint32_t last_debug_count = 0;
 static float ping_flash_timer = 0.0f;
 
-void InitHud() {
-	mock_direction = 0.0f;
-	mock_distance_deg = 45.0f;
-	mock_time = 0.0f;
+static void MonoText(const char* text, float x, float y, float size, Color color) {
+	DrawTextEx(monoFont, text, {x, y}, size, SPACING, color);
 }
 
-static void DrawConnectionIndicator() {
+static float MonoWidth(const char* text, float size) {
+	return MeasureTextEx(monoFont, text, size, SPACING).x;
+}
+
+void InitHud() {
+	mock_direction = 0.0f;
+	mock_distance_deg = 0.0f;
+	mock_time = 0.0f;
+	mock_has_target = false;
+	dim_color = {80, 80, 80, 255};
+}
+
+// Top-left: telescope state (INIT, SETUP, IDLE, SEARCH, FOUND)
+static void DrawTopLeft() {
+	const char* state_str = nullptr;
+	switch (GetTelescopeState()) {
+	case TelescopeState::INIT:   state_str = "INIT";   break;
+	case TelescopeState::SETUP:  state_str = "SETUP";  break;
+	case TelescopeState::IDLE:   state_str = "IDLE";   break;
+	case TelescopeState::SEARCH: state_str = "SEARCH"; break;
+	case TelescopeState::FOUND:  state_str = "FOUND";  break;
+	}
+
+	MonoText(state_str, PAD + 14.0f, PAD + 14.0f, FONT_XL, displayColor);
+}
+
+// Top-right: target direction arrow + distance to target, or idle dot when no target
+static void DrawTopRight() {
+	float s = static_cast<float>(screenRes);
+
+	if (!mock_has_target) {
+		const char* label = "NO TGT";
+		float tw = MonoWidth(label, FONT_S);
+		float tx = s - PAD - 14.0f - tw;
+		DrawCircleV({tx - 16.0f, PAD + 14.0f + FONT_S / 2.0f}, 5.0f, dim_color);
+		MonoText(label, tx, PAD + 14.0f, FONT_S, dim_color);
+		return;
+	}
+
+	// Arrow centered in the top-right corner
+	float arrow_cx = s - PAD - 50.0f;
+	float arrow_cy = PAD + 40.0f;
+	float arrow_len = 44.0f;
+	float half_len = arrow_len / 2.0f;
+
+	Vector2 arrow_start = {
+		arrow_cx - half_len * cosf(mock_direction),
+		arrow_cy - half_len * sinf(mock_direction)
+	};
+	Vector2 arrow_end = {
+		arrow_cx + half_len * cosf(mock_direction),
+		arrow_cy + half_len * sinf(mock_direction)
+	};
+	DrawArrow(arrow_start, arrow_end, 3.0f, 12.0f, displayColor);
+
+	// Distance below the arrow
+	char dist_buf[32];
+	snprintf(dist_buf, sizeof(dist_buf), "%.1f", mock_distance_deg);
+	float tw = MonoWidth(dist_buf, FONT_L);
+	MonoText(dist_buf, arrow_cx - tw / 2.0f, arrow_cy + half_len + 6.0f, FONT_L, displayColor);
+}
+
+// Bottom-left: compass heading
+static void DrawBottomLeft() {
+	float heading_deg;
+	uint32_t imu_count;
+	{
+		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
+		heading_deg = static_cast<float>(g_shared_state.imu.heading) / 16.0f;
+		imu_count = g_shared_state.imu_update_count;
+	}
+
+	float s = static_cast<float>(screenRes);
+	float x = PAD + 6.0f;
+	float y = s - PAD - FONT_L - 6.0f;
+
+	char hdg_buf[16];
+	if (imu_count > 0) {
+		snprintf(hdg_buf, sizeof(hdg_buf), "HDG %03.0f", heading_deg);
+	} else {
+		snprintf(hdg_buf, sizeof(hdg_buf), "HDG ---");
+	}
+	Color hdg_color = (imu_count > 0) ? displayColor : dim_color;
+	MonoText(hdg_buf, x, y, FONT_L, hdg_color);
+}
+
+// Bottom-right: GPS fix indicator + debug connection indicator
+static void DrawBottomRight() {
+	uint32_t gps_count;
 	uint32_t current_debug_count;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
+		gps_count = g_shared_state.gps_update_count;
 		current_debug_count = g_shared_state.debug_update_count;
 	}
 
@@ -49,85 +144,63 @@ static void DrawConnectionIndicator() {
 	ping_flash_timer -= GetFrameTime();
 	if (ping_flash_timer < 0.0f) ping_flash_timer = 0.0f;
 
-	float x = screenRes - HUD_PADDING - 8.0f;
-	float y = screenRes - HUD_PADDING - 8.0f;
+	float s = static_cast<float>(screenRes);
+	float right_x = s - PAD - 6.0f;
+	float bottom_y = s - PAD - 6.0f;
 
-	Color dot_color = (ping_flash_timer > 0.0f) ? GREEN : DARKGRAY;
-	DrawCircleV({x, y}, 6.0f, dot_color);
+	// GPS fix: dot then label, inline (bottom row)
+	bool has_fix = (gps_count > 0);
+	Color gps_color = has_fix ? GREEN : dim_color;
+	const char* gps_label = "GPS";
+	float gps_tw = MonoWidth(gps_label, FONT_S);
+	float gps_row_y = bottom_y - FONT_S;
+	float gps_text_x = right_x - gps_tw;
+	DrawCircleV({gps_text_x - 16.0f, gps_row_y + FONT_S / 2.0f}, 6.0f, gps_color);
+	MonoText(gps_label, gps_text_x, gps_row_y, FONT_S, gps_color);
+
+	// Debug connection: dot then label, inline (row above GPS)
+	Color dbg_color = (ping_flash_timer > 0.0f) ? GREEN : dim_color;
+	const char* dbg_label = "DBG";
+	float dbg_tw = MonoWidth(dbg_label, FONT_S);
+	float dbg_row_y = gps_row_y - FONT_S - 6.0f;
+	float dbg_text_x = right_x - dbg_tw;
+	DrawCircleV({dbg_text_x - 16.0f, dbg_row_y + FONT_S / 2.0f}, 6.0f, dbg_color);
+	MonoText(dbg_label, dbg_text_x, dbg_row_y, FONT_S, dbg_color);
 }
 
-static void DrawBaseCompassHeading() {
-	float heading_deg;
-	uint32_t current_imu_count;
-	{
-		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
-		heading_deg = static_cast<float>(g_shared_state.imu.heading) / 16.0f;
-		current_imu_count = g_shared_state.imu_update_count;
-	}
+// Decorative accents in the corners outside the circle
+static void DrawCornerAccents() {
+	// Corner bracket lines in the four corners
+	float b = 30.0f;
+	Color bracket = {displayColor.r, displayColor.g, displayColor.b, 255};
 
-	bool has_data = (current_imu_count > 0);
-	Color text_color = has_data ? displayColor : DARKGRAY;
+	// Top-left
+	DrawLineEx({PAD, PAD}, {PAD + b, PAD}, LINE_THICK, bracket);
+	DrawLineEx({PAD, PAD}, {PAD, PAD + b}, LINE_THICK, bracket);
 
-	char buf[16];
-	if (has_data) {
-		snprintf(buf, sizeof(buf), "%03.0f", heading_deg);
-	} else {
-		snprintf(buf, sizeof(buf), "---");
-	}
+	// Top-right
+	DrawLineEx({screenRes - PAD, PAD}, {screenRes - PAD - b, PAD}, LINE_THICK, bracket);
+	DrawLineEx({screenRes - PAD, PAD}, {screenRes - PAD, PAD + b}, LINE_THICK, bracket);
 
-	int fontSize = 40;
-	int textW = MeasureText(buf, fontSize);
-	float x = HUD_PADDING;
-	float y = screenRes - HUD_PADDING - fontSize;
-	DrawText(buf, static_cast<int>(x), static_cast<int>(y), fontSize, text_color);
+	// Bottom-left
+	DrawLineEx({PAD, screenRes - PAD}, {PAD + b, screenRes - PAD}, LINE_THICK, bracket);
+	DrawLineEx({PAD, screenRes - PAD}, {PAD, screenRes - PAD - b}, LINE_THICK, bracket);
 
-	DrawText("deg", static_cast<int>(x + textW + 4), static_cast<int>(y + 4), 14, text_color);
+	// Bottom-right
+	DrawLineEx({screenRes - PAD, screenRes - PAD}, {screenRes - PAD - b, screenRes - PAD}, LINE_THICK, bracket);
+	DrawLineEx({screenRes - PAD, screenRes - PAD}, {screenRes - PAD, screenRes - PAD - b}, LINE_THICK, bracket);
 }
 
 void DrawHud() {
 	UpdateMockData();
 
-	float half = screenRes / 2.0f;
-	float circleR = half;
-
-	// Direction arrow in top-right corner outside the circle
-	float cornerInset = half * (1.0f - 0.707f) * 0.5f + HUD_PADDING;
-	float cx = screenRes - cornerInset - 10.0f;
-	float cy = cornerInset + 10.0f;
-
-	Vector2 center = {half, half};
-	Vector2 hudCenter = {cx, cy};
-	float distToCenter = Vector2Distance(hudCenter, center);
-	if (distToCenter + ARROW_RADIUS + 4.0f > circleR) {
-		Vector2 dir = Vector2Normalize(Vector2Subtract(hudCenter, center));
-		float maxDist = circleR - ARROW_RADIUS - 4.0f;
-		hudCenter = Vector2Add(center, Vector2Scale(dir, maxDist));
-		cx = hudCenter.x;
-		cy = hudCenter.y;
-	}
-
-	float halfLen = ARROW_RADIUS * 0.7f;
-	Vector2 arrowStart = {
-		cx - halfLen * cosf(mock_direction),
-		cy - halfLen * sinf(mock_direction)
-	};
-	Vector2 arrowEnd = {
-		cx + halfLen * cosf(mock_direction),
-		cy + halfLen * sinf(mock_direction)
-	};
-	DrawArrow(arrowStart, arrowEnd, 2.5f, 12.0f, displayColor);
-
-	// Distance counter below the arrow
-	char distBuf[32];
-	snprintf(distBuf, sizeof(distBuf), "%.1f deg", mock_distance_deg);
-	int fontSize = 16;
-	int textW = MeasureText(distBuf, fontSize);
-	DrawText(distBuf, (int)(cx - textW / 2.0f), (int)(cy + ARROW_RADIUS + 4.0f),
-	         fontSize, displayColor);
-
 	// Circle border
-	DrawCircleLines(screenRes / 2, screenRes / 2, circleR , displayColor);
+	float half = screenRes / 2.0f;
+	DrawCircleLines(screenRes / 2, screenRes / 2, half, displayColor);
 
-	DrawConnectionIndicator();
-	DrawBaseCompassHeading();
+	DrawCornerAccents();
+	DrawTopLeft();
+	DrawTopRight();
+	DrawBottomLeft();
+	DrawBottomRight();
 }

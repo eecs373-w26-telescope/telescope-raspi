@@ -4,3 +4,4 @@
 
 extern int screenRes;
 extern Color displayColor;
+extern Font monoFont;

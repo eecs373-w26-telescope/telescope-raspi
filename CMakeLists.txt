@@ -28,6 +28,13 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 target_link_libraries(${PROJECT_NAME} PRIVATE raylib)
 
+# Flip display for physical mirror on release builds targeting raspi
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_compile_definitions(${PROJECT_NAME} PRIVATE DISPLAY_FLIP=1)
+else()
+    target_compile_definitions(${PROJECT_NAME} PRIVATE DISPLAY_FLIP=0)
+endif()
+
 # Symlink resources to build directory
 if(EXISTS ${CMAKE_SOURCE_DIR}/resources)
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
