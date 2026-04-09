@@ -60,8 +60,6 @@ struct PacketHeader {
 struct GpsPayload {
 	int32_t  latitude_e7;
 	int32_t  longitude_e7;
-	int32_t  altitude_mm;
-	uint8_t  fix_quality;
 	uint8_t  num_satellites;
 };
 

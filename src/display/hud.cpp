@@ -148,10 +148,16 @@ static void DrawBottomRight() {
 	float right_x = s - PAD - 6.0f;
 	float bottom_y = s - PAD - 6.0f;
 
-	// GPS fix: dot then label, inline (bottom row)
-	bool has_fix = (gps_count > 0);
+	// GPS: satellite count + label, inline (bottom row)
+	uint8_t num_sats = 0;
+	{
+		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
+		num_sats = g_shared_state.gps.num_satellites;
+	}
+	bool has_fix = (gps_count > 0 && num_sats > 0);
 	Color gps_color = has_fix ? GREEN : dim_color;
-	const char* gps_label = "GPS";
+	char gps_label[16];
+	snprintf(gps_label, sizeof(gps_label), "GPS %02d", num_sats);
 	float gps_tw = MonoWidth(gps_label, FONT_S);
 	float gps_row_y = bottom_y - FONT_S;
 	float gps_text_x = right_x - gps_tw;
