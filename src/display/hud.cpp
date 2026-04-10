@@ -102,20 +102,46 @@ static void DrawTopRight() {
 	MonoText(dist_buf, arrow_cx - tw / 2.0f, arrow_cy + half_len + 6.0f, FONT_L, displayColor);
 }
 
-// Bottom-left: compass heading
+// Bottom-left: calibration status + compass heading
 static void DrawBottomLeft() {
 	float heading_deg;
 	uint32_t imu_count;
+	uint8_t calibration;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
 		heading_deg = static_cast<float>(g_shared_state.imu.heading) / 16.0f;
 		imu_count = g_shared_state.imu_update_count;
+		calibration = g_shared_state.imu.calibration;
 	}
+
+	uint8_t accel_cal = (calibration >> 2) & 0x03;
+	uint8_t mag_cal   = calibration & 0x03;
 
 	float s = static_cast<float>(screenRes);
 	float x = PAD + 6.0f;
-	float y = s - PAD - FONT_L - 6.0f;
+	float hdg_y = s - PAD - FONT_L - 6.0f;
+	float cal_y = hdg_y - FONT_S - 2.0f;
 
+	// Calibration line: A* M* (each 0-3, 3 = fully calibrated)
+	char cal_buf[16];
+	if (imu_count > 0) {
+		snprintf(cal_buf, sizeof(cal_buf), "A%d M%d", accel_cal, mag_cal);
+	} else {
+		snprintf(cal_buf, sizeof(cal_buf), "A- M-");
+	}
+	Color accel_color = (imu_count > 0 && accel_cal == 3) ? displayColor : dim_color;
+	Color mag_color   = (imu_count > 0 && mag_cal == 3)   ? displayColor : dim_color;
+
+	char a_buf[4];
+	snprintf(a_buf, sizeof(a_buf), "A%c", (imu_count > 0) ? ('0' + accel_cal) : '-');
+	MonoText(a_buf, x, cal_y, FONT_S, accel_color);
+	float a_width = MonoWidth(a_buf, FONT_S);
+
+	char m_buf[4];
+	snprintf(m_buf, sizeof(m_buf), "M%c", (imu_count > 0) ? ('0' + mag_cal) : '-');
+	MonoText(m_buf, x + a_width + 12.0f, cal_y, FONT_S, mag_color);
+
+	// Heading
 	char hdg_buf[16];
 	if (imu_count > 0) {
 		snprintf(hdg_buf, sizeof(hdg_buf), "HDG %03.0f", heading_deg);
@@ -123,7 +149,7 @@ static void DrawBottomLeft() {
 		snprintf(hdg_buf, sizeof(hdg_buf), "HDG ---");
 	}
 	Color hdg_color = (imu_count > 0) ? displayColor : dim_color;
-	MonoText(hdg_buf, x, y, FONT_L, hdg_color);
+	MonoText(hdg_buf, x, hdg_y, FONT_L, hdg_color);
 }
 
 // Bottom-right: GPS fix indicator + debug connection indicator

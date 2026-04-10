@@ -78,14 +78,7 @@ struct TouchEventPayload {
 
 struct ImuPayload {
 	int16_t  heading;
-	int16_t  roll;
-	int16_t  pitch;
-	int16_t  quat_w;
-	int16_t  quat_x;
-	int16_t  quat_y;
-	int16_t  quat_z;
 	uint8_t  calibration;
-	int8_t   temperature;
 };
 
 struct StateSyncPayload {

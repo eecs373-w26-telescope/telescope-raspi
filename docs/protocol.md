@@ -34,7 +34,7 @@ Offset  Size  Field
 | 0x01 | PACKET_GPS         | 14B     | 1 Hz     |
 | 0x02 | PACKET_ENCODER     | 12B     | 50 Hz    |
 | 0x03 | PACKET_TOUCH_EVENT | 5B      | On event |
-| 0x04 | PACKET_IMU         | 16B     | 50 Hz    |
+| 0x04 | PACKET_IMU         | 3B      | 10 Hz    |
 | 0x21 | PACKET_DSO_RESPONSE| 33B     | Response |
 
 ### Raspi to Nucleo
@@ -79,23 +79,16 @@ Offset  Type      Field            Notes
 10      uint16_t  elevation_raw    raw 12-bit sensor value (0-4095)
 ```
 
-### ImuPayload (0x04, 16 bytes)
+### ImuPayload (0x04, 3 bytes)
 
-BNO055 9DoF IMU via I2C. Used to determine true north for the telescope base. All values in BNO055 native register format to avoid float conversion on the nucleo.
+BNO055 9DoF IMU via I2C in NDOF mode. Heading from Euler register, calibration from CALIB_STAT register.
 
 ```
 Offset  Type     Field         Notes
 0       int16_t  heading       degrees * 16 (0 to 5759 = 0.0 to 359.9375 deg)
-2       int16_t  roll          degrees * 16 (-2880 to 2880)
-4       int16_t  pitch         degrees * 16 (-1440 to 1440)
-6       int16_t  quat_w        quaternion, scale 1/16384
-8       int16_t  quat_x
-10      int16_t  quat_y
-12      int16_t  quat_z
-14      uint8_t  calibration   packed nibbles: [sys:2][gyro:2][accel:2][mag:2]
-                               matches BNO055 CALIB_STAT register (0x35)
+2       uint8_t  calibration   packed nibbles: [sys:2][gyro:2][accel:2][mag:2]
+                               BNO055 CALIB_STAT register (0x35)
                                each field 0-3, 3 = fully calibrated
-15      int8_t   temperature   degrees C
 ```
 
 ### TouchEventPayload (0x03, 5 bytes)
@@ -170,8 +163,8 @@ Offset  Type       Field   Notes
 |-----------------|-----------|--------|-----------|
 | GPS             | 20B       | 1 Hz   | 20        |
 | Encoder         | 18B       | 50 Hz  | 900       |
-| IMU             | 22B       | 50 Hz  | 1,100     |
+| IMU             | 9B        | 10 Hz  | 90        |
 | State sync      | 10B       | 5 Hz   | 50        |
-| **Total**       |           |        | **2,070** |
+| **Total**       |           |        | **1,055** |
 
 18% utilization. Plenty of headroom.
