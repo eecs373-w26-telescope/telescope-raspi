@@ -1,5 +1,4 @@
 #include "display/hud.h"
-#include "display/arrow.h"
 #include "protocol/shared_state.h"
 #include "state_machine/state_machine.h"
 #include "globals.h"
@@ -42,6 +41,24 @@ static void MonoText(const char* text, float x, float y, float size, Color color
 
 static float MonoWidth(const char* text, float size) {
 	return MeasureTextEx(monoFont, text, size, SPACING).x;
+}
+
+static void DrawArrow(Vector2 start, Vector2 end, float thickness, float headSize, Color color) {
+	DrawLineEx(start, end, thickness, color);
+
+	Vector2 direction = {end.x - start.x, end.y - start.y};
+	float angle = atan2f(direction.y, direction.x);
+
+	Vector2 p1 = {
+		end.x - headSize * cosf(angle - PI / 6),
+		end.y - headSize * sinf(angle - PI / 6)
+	};
+	Vector2 p2 = {
+		end.x - headSize * cosf(angle + PI / 6),
+		end.y - headSize * sinf(angle + PI / 6)
+	};
+
+	DrawTriangle(end, p2, p1, color);
 }
 
 void InitHud() {
@@ -109,7 +126,7 @@ static void DrawBottomLeft() {
 	uint8_t calibration;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
-		heading_deg = static_cast<float>(g_shared_state.imu.heading) / 16.0f;
+		heading_deg = g_shared_state.filtered_heading_deg;
 		imu_count = g_shared_state.imu_update_count;
 		calibration = g_shared_state.imu.calibration;
 	}

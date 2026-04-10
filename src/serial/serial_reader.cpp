@@ -4,7 +4,6 @@
 
 #include <thread>
 #include <atomic>
-#include <cstring>
 #include <fcntl.h>
 #include <unistd.h>
 #include <termios.h>
@@ -18,47 +17,23 @@ static void dispatch(uint8_t packet_id, const uint8_t* payload, uint8_t length) 
 
 	switch (packet_id) {
 	case PACKET_GPS:
-		if (length >= sizeof(GpsPayload)) {
-			std::memcpy(&g_shared_state.gps, payload, sizeof(GpsPayload));
-			g_shared_state.gps_update_count++;
-		}
+		if (length >= sizeof(GpsPayload))          g_shared_state.updateGps(payload);
 		break;
-
 	case PACKET_ENCODER:
-		if (length >= sizeof(EncoderPayload)) {
-			std::memcpy(&g_shared_state.encoder, payload, sizeof(EncoderPayload));
-			g_shared_state.encoder_update_count++;
-		}
+		if (length >= sizeof(EncoderPayload))      g_shared_state.updateEncoder(payload);
 		break;
-
 	case PACKET_IMU:
-		if (length >= sizeof(ImuPayload)) {
-			std::memcpy(&g_shared_state.imu, payload, sizeof(ImuPayload));
-			g_shared_state.imu_update_count++;
-		}
+		if (length >= sizeof(ImuPayload))           g_shared_state.updateImu(payload);
 		break;
-
 	case PACKET_TOUCH_EVENT:
-		if (length >= sizeof(TouchEventPayload)) {
-			std::memcpy(&g_shared_state.touch_event, payload, sizeof(TouchEventPayload));
-			g_shared_state.touch_event_update_count++;
-		}
+		if (length >= sizeof(TouchEventPayload))   g_shared_state.updateTouchEvent(payload);
 		break;
-
 	case PACKET_DSO_RESPONSE:
-		if (length >= sizeof(DsoResponsePayload)) {
-			std::memcpy(&g_shared_state.dso_response, payload, sizeof(DsoResponsePayload));
-			g_shared_state.dso_response_update_count++;
-		}
+		if (length >= sizeof(DsoResponsePayload))  g_shared_state.updateDsoResponse(payload);
 		break;
-
 	case PACKET_DEBUG:
-		if (length >= sizeof(DebugPayload)) {
-			std::memcpy(&g_shared_state.debug, payload, sizeof(DebugPayload));
-			g_shared_state.debug_update_count++;
-		}
+		if (length >= sizeof(DebugPayload))         g_shared_state.updateDebug(payload);
 		break;
-
 	default:
 		break;
 	}
