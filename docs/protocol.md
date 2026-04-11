@@ -32,7 +32,7 @@ Offset  Size  Field
 | ID   | Name               | Payload | Rate     |
 |------|--------------------|---------|----------|
 | 0x01 | PACKET_GPS         | 14B     | 1 Hz     |
-| 0x02 | PACKET_ENCODER     | 12B     | 50 Hz    |
+| 0x02 | PACKET_ENCODER     | 2B      | 10 Hz    |
 | 0x03 | PACKET_TOUCH_EVENT | 5B      | On event |
 | 0x04 | PACKET_IMU         | 3B      | 10 Hz    |
 | 0x21 | PACKET_DSO_RESPONSE| 33B     | Response |
@@ -67,16 +67,13 @@ Offset  Type     Field           Notes
 13      uint8_t  num_satellites
 ```
 
-### EncoderPayload (0x02, 12 bytes)
+### EncoderPayload (0x02, 2 bytes)
 
-Two AS5600 magnetic rotary encoders via I2C. One for yaw (azimuth), one for pitch (elevation).
+AS5048A magnetic rotary encoder via SPI1. Yaw axis only. CS on D12 (PC2).
 
 ```
 Offset  Type      Field            Notes
-0       int32_t   azimuth_ticks    cumulative yaw ticks
-4       int32_t   elevation_ticks  cumulative pitch ticks
-8       uint16_t  azimuth_raw      raw 12-bit sensor value (0-4095)
-10      uint16_t  elevation_raw    raw 12-bit sensor value (0-4095)
+0       uint16_t  azimuth_raw      raw 14-bit sensor value (0-16383)
 ```
 
 ### ImuPayload (0x04, 3 bytes)
@@ -162,9 +159,9 @@ Offset  Type       Field   Notes
 | Stream          | Frame Size | Rate   | Bytes/sec |
 |-----------------|-----------|--------|-----------|
 | GPS             | 20B       | 1 Hz   | 20        |
-| Encoder         | 18B       | 50 Hz  | 900       |
+| Encoder         | 8B        | 10 Hz  | 80        |
 | IMU             | 9B        | 10 Hz  | 90        |
 | State sync      | 10B       | 5 Hz   | 50        |
-| **Total**       |           |        | **1,055** |
+| **Total**       |           |        | **235**   |
 
 18% utilization. Plenty of headroom.

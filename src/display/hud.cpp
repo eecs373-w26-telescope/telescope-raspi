@@ -217,6 +217,33 @@ static void DrawBottomRight() {
 	MonoText(dbg_label, dbg_text_x, dbg_row_y, FONT_S, dbg_color);
 }
 
+// Center: encoder debug display
+static void DrawCenter() {
+	uint16_t azimuth_raw;
+	uint32_t enc_count;
+	{
+		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
+		azimuth_raw = g_shared_state.encoder.azimuth_raw;
+		enc_count = g_shared_state.encoder_update_count;
+	}
+
+	float cx = screenRes / 2.0f;
+	float cy = screenRes / 2.0f;
+
+	float yaw_deg = (static_cast<float>(azimuth_raw) / 16383.0f) * 360.0f;
+
+	char yaw_buf[16];
+	if (enc_count > 0) {
+		snprintf(yaw_buf, sizeof(yaw_buf), "YAW %05.1f", yaw_deg);
+	} else {
+		snprintf(yaw_buf, sizeof(yaw_buf), "YAW ---.-");
+	}
+
+	Color enc_color = (enc_count > 0) ? displayColor : dim_color;
+	float yaw_w = MonoWidth(yaw_buf, FONT_S);
+	MonoText(yaw_buf, cx - yaw_w / 2.0f, cy - FONT_S / 2.0f, FONT_S, enc_color);
+}
+
 // Decorative accents in the corners outside the circle
 static void DrawCornerAccents() {
 	// Corner bracket lines in the four corners
@@ -252,4 +279,5 @@ void DrawHud() {
 	DrawTopRight();
 	DrawBottomLeft();
 	DrawBottomRight();
+	DrawCenter();
 }

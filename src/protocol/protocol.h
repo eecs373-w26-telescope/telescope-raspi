@@ -64,10 +64,7 @@ struct GpsPayload {
 };
 
 struct EncoderPayload {
-	int32_t  azimuth_ticks;
-	int32_t  elevation_ticks;
 	uint16_t azimuth_raw;
-	uint16_t elevation_raw;
 };
 
 struct TouchEventPayload {
