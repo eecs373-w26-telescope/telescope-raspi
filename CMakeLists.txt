@@ -29,7 +29,14 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME} PRIVATE raylib)
 
 # Flip display for physical mirror on release builds targeting raspi
-# build.sh always passes -DDISPLAY_FLIP=<0|1> to avoid stale cache values
+# Override with -DDISPLAY_FLIP_OVERRIDE=0 or -DDISPLAY_FLIP_OVERRIDE=1
+if(DEFINED DISPLAY_FLIP_OVERRIDE)
+    set(DISPLAY_FLIP ${DISPLAY_FLIP_OVERRIDE})
+elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(DISPLAY_FLIP 1)
+else()
+    set(DISPLAY_FLIP 0)
+endif()
 target_compile_definitions(${PROJECT_NAME} PRIVATE DISPLAY_FLIP=${DISPLAY_FLIP})
 
 # Symlink resources to build directory
