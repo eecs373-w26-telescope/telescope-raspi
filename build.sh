@@ -33,11 +33,15 @@ else
 	echo "==> Detected dev machine (os=$OS_ID), using debug preset"
 fi
 
-EXTRA_FLAGS=""
 if [[ -n "$FLIP_OVERRIDE" ]]; then
-	EXTRA_FLAGS="-DDISPLAY_FLIP=$FLIP_OVERRIDE"
-	echo "==> Flip override: DISPLAY_FLIP=$FLIP_OVERRIDE"
+	DISPLAY_FLIP="$FLIP_OVERRIDE"
+	echo "==> Flip override: DISPLAY_FLIP=$DISPLAY_FLIP"
+elif [[ "$PRESET" == "release" ]]; then
+	DISPLAY_FLIP="1"
+else
+	DISPLAY_FLIP="0"
 fi
+EXTRA_FLAGS="-DDISPLAY_FLIP=$DISPLAY_FLIP"
 
 echo "==> Configuring with preset: $PRESET"
 cmake --preset "$PRESET" $EXTRA_FLAGS

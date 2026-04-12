@@ -64,7 +64,8 @@ struct GpsPayload {
 };
 
 struct EncoderPayload {
-	uint16_t azimuth_raw;
+	uint16_t yaw_raw;
+	uint16_t pitch_raw;
 };
 
 struct TouchEventPayload {

@@ -219,29 +219,37 @@ static void DrawBottomRight() {
 
 // Center: encoder debug display
 static void DrawCenter() {
-	uint16_t azimuth_raw;
+	uint16_t yaw_raw;
+	uint16_t pitch_raw;
 	uint32_t enc_count;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
-		azimuth_raw = g_shared_state.encoder.azimuth_raw;
+		yaw_raw = g_shared_state.encoder.yaw_raw;
+		pitch_raw = g_shared_state.encoder.pitch_raw;
 		enc_count = g_shared_state.encoder_update_count;
 	}
 
 	float cx = screenRes / 2.0f;
 	float cy = screenRes / 2.0f;
 
-	float yaw_deg = (static_cast<float>(azimuth_raw) / 16383.0f) * 360.0f;
+	float yaw_deg = (static_cast<float>(yaw_raw) / 16383.0f) * 360.0f;
+	float pitch_deg = (static_cast<float>(pitch_raw) / 16383.0f) * 360.0f;
 
 	char yaw_buf[16];
+	char pitch_buf[16];
 	if (enc_count > 0) {
 		snprintf(yaw_buf, sizeof(yaw_buf), "YAW %05.1f", yaw_deg);
+		snprintf(pitch_buf, sizeof(pitch_buf), "PIT %05.1f", pitch_deg);
 	} else {
 		snprintf(yaw_buf, sizeof(yaw_buf), "YAW ---.-");
+		snprintf(pitch_buf, sizeof(pitch_buf), "PIT ---.-");
 	}
 
 	Color enc_color = (enc_count > 0) ? displayColor : dim_color;
 	float yaw_w = MonoWidth(yaw_buf, FONT_S);
-	MonoText(yaw_buf, cx - yaw_w / 2.0f, cy - FONT_S / 2.0f, FONT_S, enc_color);
+	float pitch_w = MonoWidth(pitch_buf, FONT_S);
+	MonoText(yaw_buf, cx - yaw_w / 2.0f, cy - FONT_S, FONT_S, enc_color);
+	MonoText(pitch_buf, cx - pitch_w / 2.0f, cy + 2.0f, FONT_S, enc_color);
 }
 
 // Decorative accents in the corners outside the circle
