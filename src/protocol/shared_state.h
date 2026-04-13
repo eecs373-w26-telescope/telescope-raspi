@@ -1,11 +1,8 @@
 #pragma once
 
 #include "protocol/protocol.h"
-#include <array>
 #include <mutex>
 #include <cstdint>
-
-static constexpr size_t IMU_FILTER_WINDOW = 8;
 
 struct SharedState {
 	std::mutex mtx;
@@ -16,8 +13,6 @@ struct SharedState {
 	TouchEventPayload   touch_event{};
 	DsoResponsePayload  dso_response{};
 	DebugPayload        debug{};
-
-	float filtered_heading_deg = 0.0f;
 
 	uint32_t gps_update_count          = 0;
 	uint32_t encoder_update_count      = 0;
@@ -35,14 +30,6 @@ struct SharedState {
 	void updateTouchEvent(const uint8_t* payload);
 	void updateDsoResponse(const uint8_t* payload);
 	void updateDebug(const uint8_t* payload);
-
-private:
-	std::array<float, IMU_FILTER_WINDOW> sin_buf{};
-	std::array<float, IMU_FILTER_WINDOW> cos_buf{};
-	float sin_sum = 0.0f;
-	float cos_sum = 0.0f;
-	size_t ring_idx = 0;
-	size_t ring_count = 0;
 };
 
 extern SharedState g_shared_state;

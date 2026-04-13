@@ -9,7 +9,7 @@ while [[ $# -gt 0 ]]; do
 			if [[ "$2" == "true" ]]; then
 				FLIP_OVERRIDE="1"
 			elif [[ "$2" == "false" ]]; then
-				FLIP_OVERRIDE="0"
+				FLIP_OVERRIDE	="0"
 			else
 				echo "Usage: --flip true|false" >&2
 				exit 1

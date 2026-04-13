@@ -126,7 +126,7 @@ static void DrawBottomLeft() {
 	uint8_t calibration;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
-		heading_deg = g_shared_state.filtered_heading_deg;
+		heading_deg = static_cast<float>(g_shared_state.imu.heading) / 16.0f;
 		imu_count = g_shared_state.imu_update_count;
 		calibration = g_shared_state.imu.calibration;
 	}
