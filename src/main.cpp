@@ -8,6 +8,7 @@
 
 int screenRes = 768;
 Color displayColor = WHITE;
+uint8_t dimAlpha = 80;
 Font monoFont = {0};
 
 static std::atomic<bool> shouldQuit{false};

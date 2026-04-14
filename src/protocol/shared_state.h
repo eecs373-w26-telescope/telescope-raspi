@@ -21,8 +21,8 @@ struct SharedState {
 	bool     dso_target_received = false;
 	uint32_t debug_update_count  = 0;
 
-	uint32_t crc_error_count  = 0;
-	uint32_t sync_loss_count  = 0;
+	uint32_t crc_error_count = 0;
+	uint32_t sync_loss_count = 0;
 
 	void updateGps(const uint8_t* payload);
 	void updateEncoder(const uint8_t* payload);

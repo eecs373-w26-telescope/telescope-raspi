@@ -23,15 +23,14 @@ static void UpdateMockData() {
 }
 // ---- End mock data ----
 
-static constexpr float PAD = 3.0f;
-static constexpr float PING_FLASH_DURATION = 0.5f;
-static constexpr float FONT_S = 40.0f;
-static constexpr float FONT_L = 44.0f;
-static constexpr float FONT_XL = 50.0f;
-static constexpr float SPACING = 0.0f;
+static constexpr float PAD        = 3.0f;
+static constexpr float PING_FLASH = 0.5f;
+static constexpr float FONT_S     = 40.0f;
+static constexpr float FONT_L     = 44.0f;
+static constexpr float FONT_XL    = 50.0f;
+static constexpr float SPACING    = 0.0f;
 static constexpr float LINE_THICK = 1.5f;
 
-static Color dim_color;
 static uint32_t last_debug_count = 0;
 static float ping_flash_timer = 0.0f;
 
@@ -66,7 +65,8 @@ void InitHud() {
 	mock_distance_deg = 0.0f;
 	mock_time = 0.0f;
 	mock_has_target = false;
-	dim_color = {80, 80, 80, 255};
+	ping_flash_timer = 0.0f;
+	last_debug_count = 0;
 }
 
 // Top-left: telescope state (INIT, SETUP, IDLE, SEARCH, FOUND)
@@ -91,12 +91,11 @@ static void DrawTopRight() {
 		const char* label = "NO TGT";
 		float tw = MonoWidth(label, FONT_S);
 		float tx = s - PAD - 14.0f - tw;
-		DrawCircleV({tx - 16.0f, PAD + 14.0f + FONT_S / 2.0f}, 5.0f, dim_color);
-		MonoText(label, tx, PAD + 14.0f, FONT_S, dim_color);
+		DrawCircleV({tx - 16.0f, PAD + 14.0f + FONT_S / 2.0f}, 5.0f, DimColor());
+		MonoText(label, tx, PAD + 14.0f, FONT_S, DimColor());
 		return;
 	}
 
-	// Arrow centered in the top-right corner
 	float arrow_cx = s - PAD - 50.0f;
 	float arrow_cy = PAD + 40.0f;
 	float arrow_len = 44.0f;
@@ -112,7 +111,6 @@ static void DrawTopRight() {
 	};
 	DrawArrow(arrow_start, arrow_end, 3.0f, 12.0f, displayColor);
 
-	// Distance below the arrow
 	char dist_buf[32];
 	snprintf(dist_buf, sizeof(dist_buf), "%.1f", mock_distance_deg);
 	float tw = MonoWidth(dist_buf, FONT_L);
@@ -122,13 +120,13 @@ static void DrawTopRight() {
 // Bottom-left: calibration status + compass heading
 static void DrawBottomLeft() {
 	float heading_deg;
-	bool imu_count;
+	bool imu_received;
 	uint8_t calibration;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
-		heading_deg = static_cast<float>(g_shared_state.imu.heading) / 16.0f;
-		imu_count = g_shared_state.imu_received;
-		calibration = g_shared_state.imu.calibration;
+		heading_deg  = static_cast<float>(g_shared_state.imu.heading) / 16.0f;
+		imu_received = g_shared_state.imu_received;
+		calibration  = g_shared_state.imu.calibration;
 	}
 
 	uint8_t accel_cal = (calibration >> 2) & 0x03;
@@ -139,49 +137,42 @@ static void DrawBottomLeft() {
 	float hdg_y = s - PAD - FONT_L - 6.0f;
 	float cal_y = hdg_y - FONT_S - 2.0f;
 
-	// Calibration line: A* M* (each 0-3, 3 = fully calibrated)
-	char cal_buf[16];
-	if (imu_count > 0) {
-		snprintf(cal_buf, sizeof(cal_buf), "A%d M%d", accel_cal, mag_cal);
-	} else {
-		snprintf(cal_buf, sizeof(cal_buf), "A- M-");
-	}
-	Color accel_color = (imu_count > 0 && accel_cal == 3) ? displayColor : dim_color;
-	Color mag_color   = (imu_count > 0 && mag_cal == 3)   ? displayColor : dim_color;
+	Color accel_color = (imu_received && accel_cal == 3) ? displayColor : DimColor();
+	Color mag_color   = (imu_received && mag_cal == 3)   ? displayColor : DimColor();
 
 	char a_buf[4];
-	snprintf(a_buf, sizeof(a_buf), "A%c", (imu_count > 0) ? ('0' + accel_cal) : '-');
+	snprintf(a_buf, sizeof(a_buf), "A%c", imu_received ? ('0' + accel_cal) : '-');
 	MonoText(a_buf, x, cal_y, FONT_S, accel_color);
 	float a_width = MonoWidth(a_buf, FONT_S);
 
 	char m_buf[4];
-	snprintf(m_buf, sizeof(m_buf), "M%c", (imu_count > 0) ? ('0' + mag_cal) : '-');
+	snprintf(m_buf, sizeof(m_buf), "M%c", imu_received ? ('0' + mag_cal) : '-');
 	MonoText(m_buf, x + a_width + 12.0f, cal_y, FONT_S, mag_color);
 
-	// Heading
 	char hdg_buf[16];
-	if (imu_count > 0) {
+	if (imu_received) {
 		snprintf(hdg_buf, sizeof(hdg_buf), "HDG %03.0f", heading_deg);
 	} else {
 		snprintf(hdg_buf, sizeof(hdg_buf), "HDG ---");
 	}
-	Color hdg_color = (imu_count > 0) ? displayColor : dim_color;
-	MonoText(hdg_buf, x, hdg_y, FONT_L, hdg_color);
+	MonoText(hdg_buf, x, hdg_y, FONT_L, imu_received ? displayColor : DimColor());
 }
 
 // Bottom-right: GPS fix indicator + debug connection indicator
 static void DrawBottomRight() {
-	bool gps_count;
+	bool gps_received;
+	uint8_t num_sats;
 	uint32_t current_debug_count;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
-		gps_count = g_shared_state.gps_received;
+		gps_received        = g_shared_state.gps_received;
+		num_sats            = g_shared_state.gps.num_satellites;
 		current_debug_count = g_shared_state.debug_update_count;
 	}
 
 	if (current_debug_count != last_debug_count) {
 		last_debug_count = current_debug_count;
-		ping_flash_timer = PING_FLASH_DURATION;
+		ping_flash_timer = PING_FLASH;
 	}
 
 	ping_flash_timer -= GetFrameTime();
@@ -191,14 +182,8 @@ static void DrawBottomRight() {
 	float right_x = s - PAD - 6.0f;
 	float bottom_y = s - PAD - 6.0f;
 
-	// GPS: satellite count + label, inline (bottom row)
-	uint8_t num_sats = 0;
-	{
-		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
-		num_sats = g_shared_state.gps.num_satellites;
-	}
-	bool has_fix = (gps_count > 0 && num_sats > 0);
-	Color gps_color = has_fix ? GREEN : dim_color;
+	bool has_fix = (gps_received && num_sats > 0);
+	Color gps_color = has_fix ? GREEN : DimColor();
 	char gps_label[16];
 	snprintf(gps_label, sizeof(gps_label), "GPS %02d", num_sats);
 	float gps_tw = MonoWidth(gps_label, FONT_S);
@@ -207,8 +192,7 @@ static void DrawBottomRight() {
 	DrawCircleV({gps_text_x - 16.0f, gps_row_y + FONT_S / 2.0f}, 6.0f, gps_color);
 	MonoText(gps_label, gps_text_x, gps_row_y, FONT_S, gps_color);
 
-	// Debug connection: dot then label, inline (row above GPS)
-	Color dbg_color = (ping_flash_timer > 0.0f) ? GREEN : dim_color;
+	Color dbg_color = (ping_flash_timer > 0.0f) ? GREEN : DimColor();
 	const char* dbg_label = "DBG";
 	float dbg_tw = MonoWidth(dbg_label, FONT_S);
 	float dbg_row_y = gps_row_y - FONT_S - 6.0f;
@@ -221,12 +205,12 @@ static void DrawBottomRight() {
 static void DrawCenter() {
 	uint16_t yaw_raw;
 	uint16_t pitch_raw;
-	bool enc_count;
+	bool enc_received;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
 		yaw_raw = g_shared_state.encoder.yaw_raw;
 		pitch_raw = g_shared_state.encoder.pitch_raw;
-		enc_count = g_shared_state.encoder_received;
+		enc_received = g_shared_state.encoder_received;
 	}
 
 	float cx = screenRes / 2.0f;
@@ -237,7 +221,7 @@ static void DrawCenter() {
 
 	char yaw_buf[16];
 	char pitch_buf[16];
-	if (enc_count > 0) {
+	if (enc_received) {
 		snprintf(yaw_buf, sizeof(yaw_buf), "YAW %05.1f", yaw_deg);
 		snprintf(pitch_buf, sizeof(pitch_buf), "PIT %05.1f", pitch_deg);
 	} else {
@@ -245,42 +229,31 @@ static void DrawCenter() {
 		snprintf(pitch_buf, sizeof(pitch_buf), "PIT ---.-");
 	}
 
-	Color enc_color = (enc_count > 0) ? displayColor : dim_color;
+	Color enc_color = enc_received ? displayColor : DimColor();
 	float yaw_w = MonoWidth(yaw_buf, FONT_S);
 	float pitch_w = MonoWidth(pitch_buf, FONT_S);
 	MonoText(yaw_buf, cx - yaw_w / 2.0f, cy - FONT_S, FONT_S, enc_color);
 	MonoText(pitch_buf, cx - pitch_w / 2.0f, cy + 2.0f, FONT_S, enc_color);
 }
 
-// Decorative accents in the corners outside the circle
+// Decorative corner bracket accents
 static void DrawCornerAccents() {
-	// Corner bracket lines in the four corners
 	float b = 30.0f;
-	Color bracket = {displayColor.r, displayColor.g, displayColor.b, 255};
 
-	// Top-left
-	DrawLineEx({PAD, PAD}, {PAD + b, PAD}, LINE_THICK, bracket);
-	DrawLineEx({PAD, PAD}, {PAD, PAD + b}, LINE_THICK, bracket);
-
-	// Top-right
-	DrawLineEx({screenRes - PAD, PAD}, {screenRes - PAD - b, PAD}, LINE_THICK, bracket);
-	DrawLineEx({screenRes - PAD, PAD}, {screenRes - PAD, PAD + b}, LINE_THICK, bracket);
-
-	// Bottom-left
-	DrawLineEx({PAD, screenRes - PAD}, {PAD + b, screenRes - PAD}, LINE_THICK, bracket);
-	DrawLineEx({PAD, screenRes - PAD}, {PAD, screenRes - PAD - b}, LINE_THICK, bracket);
-
-	// Bottom-right
-	DrawLineEx({screenRes - PAD, screenRes - PAD}, {screenRes - PAD - b, screenRes - PAD}, LINE_THICK, bracket);
-	DrawLineEx({screenRes - PAD, screenRes - PAD}, {screenRes - PAD, screenRes - PAD - b}, LINE_THICK, bracket);
+	DrawLineEx({PAD, PAD}, {PAD + b, PAD}, LINE_THICK, displayColor);
+	DrawLineEx({PAD, PAD}, {PAD, PAD + b}, LINE_THICK, displayColor);
+	DrawLineEx({screenRes - PAD, PAD}, {screenRes - PAD - b, PAD}, LINE_THICK, displayColor);
+	DrawLineEx({screenRes - PAD, PAD}, {screenRes - PAD, PAD + b}, LINE_THICK, displayColor);
+	DrawLineEx({PAD, screenRes - PAD}, {PAD + b, screenRes - PAD}, LINE_THICK, displayColor);
+	DrawLineEx({PAD, screenRes - PAD}, {PAD, screenRes - PAD - b}, LINE_THICK, displayColor);
+	DrawLineEx({screenRes - PAD, screenRes - PAD}, {screenRes - PAD - b, screenRes - PAD}, LINE_THICK, displayColor);
+	DrawLineEx({screenRes - PAD, screenRes - PAD}, {screenRes - PAD, screenRes - PAD - b}, LINE_THICK, displayColor);
 }
 
 void DrawHud() {
 	UpdateMockData();
 
-	// Circle border
-	float half = screenRes / 2.0f;
-	DrawCircleLines(screenRes / 2, screenRes / 2, half, displayColor);
+	DrawCircleLines(screenRes / 2, screenRes / 2, screenRes / 2.0f, displayColor);
 
 	DrawCornerAccents();
 	DrawTopLeft();
