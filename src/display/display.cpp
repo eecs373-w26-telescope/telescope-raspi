@@ -26,6 +26,8 @@ static void DrawScene() {
 }
 
 void DrawFrame() {
+	UpdateStateMachine();
+
 	BeginTextureMode(framebuffer);
 	ClearBackground(BLACK);
 	DrawScene();

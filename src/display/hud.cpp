@@ -122,12 +122,12 @@ static void DrawTopRight() {
 // Bottom-left: calibration status + compass heading
 static void DrawBottomLeft() {
 	float heading_deg;
-	uint32_t imu_count;
+	bool imu_count;
 	uint8_t calibration;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
 		heading_deg = static_cast<float>(g_shared_state.imu.heading) / 16.0f;
-		imu_count = g_shared_state.imu_update_count;
+		imu_count = g_shared_state.imu_received;
 		calibration = g_shared_state.imu.calibration;
 	}
 
@@ -171,11 +171,11 @@ static void DrawBottomLeft() {
 
 // Bottom-right: GPS fix indicator + debug connection indicator
 static void DrawBottomRight() {
-	uint32_t gps_count;
+	bool gps_count;
 	uint32_t current_debug_count;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
-		gps_count = g_shared_state.gps_update_count;
+		gps_count = g_shared_state.gps_received;
 		current_debug_count = g_shared_state.debug_update_count;
 	}
 
@@ -221,12 +221,12 @@ static void DrawBottomRight() {
 static void DrawCenter() {
 	uint16_t yaw_raw;
 	uint16_t pitch_raw;
-	uint32_t enc_count;
+	bool enc_count;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
 		yaw_raw = g_shared_state.encoder.yaw_raw;
 		pitch_raw = g_shared_state.encoder.pitch_raw;
-		enc_count = g_shared_state.encoder_update_count;
+		enc_count = g_shared_state.encoder_received;
 	}
 
 	float cx = screenRes / 2.0f;

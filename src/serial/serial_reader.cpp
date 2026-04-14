@@ -17,22 +17,22 @@ static void dispatch(uint8_t packet_id, const uint8_t* payload, uint8_t length) 
 
 	switch (packet_id) {
 	case PACKET_GPS:
-		if (length >= sizeof(GpsPayload))          g_shared_state.updateGps(payload);
+		if (length >= sizeof(GpsPayload)) g_shared_state.updateGps(payload);
 		break;
 	case PACKET_ENCODER:
-		if (length >= sizeof(EncoderPayload))      g_shared_state.updateEncoder(payload);
+		if (length >= sizeof(EncoderPayload)) g_shared_state.updateEncoder(payload);
 		break;
 	case PACKET_IMU:
-		if (length >= sizeof(ImuPayload))           g_shared_state.updateImu(payload);
+		if (length >= sizeof(ImuPayload)) g_shared_state.updateImu(payload);
 		break;
-	case PACKET_TOUCH_EVENT:
-		if (length >= sizeof(TouchEventPayload))   g_shared_state.updateTouchEvent(payload);
+	case PACKET_STATE_SYNC:
+		if (length >= sizeof(StateSyncPayload)) g_shared_state.updateStateSync(payload);
 		break;
-	case PACKET_DSO_RESPONSE:
-		if (length >= sizeof(DsoResponsePayload))  g_shared_state.updateDsoResponse(payload);
+	case PACKET_DSO_TARGET:
+		if (length >= sizeof(DsoTargetPayload)) g_shared_state.updateDsoTarget(payload);
 		break;
 	case PACKET_DEBUG:
-		if (length >= sizeof(DebugPayload))         g_shared_state.updateDebug(payload);
+		if (length >= sizeof(DebugPayload)) g_shared_state.updateDebug(payload);
 		break;
 	default:
 		break;

@@ -8,26 +8,15 @@ constexpr uint8_t SYNC_HI = 0xAB;
 constexpr uint8_t SYNC_LO = 0xCD;
 constexpr uint8_t MAX_PAYLOAD_SIZE = 128;
 
-// Nucleo -> Raspi: 0x01-0x0F
-// Raspi -> Nucleo: 0x10-0x1F
-// Request/Response: 0x20-0x2F
-// Bidirectional:    0xFF
+// All packets: Nucleo -> Raspi
+// Bidirectional: 0xFF
 enum PacketId : uint8_t {
 	PACKET_GPS          = 0x01,
 	PACKET_ENCODER      = 0x02,
-	PACKET_TOUCH_EVENT  = 0x03,
-	PACKET_IMU          = 0x04,
-	PACKET_STATE_SYNC   = 0x10,
-	PACKET_DSO_REQUEST  = 0x20,
-	PACKET_DSO_RESPONSE = 0x21,
+	PACKET_IMU          = 0x03,
+	PACKET_STATE_SYNC   = 0x04,
+	PACKET_DSO_TARGET   = 0x05,
 	PACKET_DEBUG        = 0xFF,
-};
-
-enum TouchEventType : uint8_t {
-	TOUCH_DSO_SELECTED   = 0,
-	TOUCH_SEARCH_START   = 1,
-	TOUCH_SEARCH_CANCEL  = 2,
-	TOUCH_MODE_CHANGE    = 3,
 };
 
 enum DsoObjectType : uint8_t {
@@ -36,11 +25,6 @@ enum DsoObjectType : uint8_t {
 	DSO_OPEN_CLUSTER     = 2,
 	DSO_GLOBULAR_CLUSTER = 3,
 	DSO_PLANETARY_NEBULA = 4,
-};
-
-enum DsoRequestType : uint8_t {
-	DSO_BY_INDEX          = 0,
-	DSO_BY_CATALOG_NUMBER = 1,
 };
 
 enum DsoStatus : uint8_t {
@@ -61,17 +45,17 @@ struct GpsPayload {
 	int32_t  latitude_e7;
 	int32_t  longitude_e7;
 	uint8_t  num_satellites;
+	uint8_t  utc_hour;
+	uint8_t  utc_minute;
+	uint8_t  utc_second;
+	uint8_t  utc_day;
+	uint8_t  utc_month;
+	uint16_t utc_year;
 };
 
 struct EncoderPayload {
 	uint16_t yaw_raw;
 	uint16_t pitch_raw;
-};
-
-struct TouchEventPayload {
-	uint8_t  event_type;
-	uint16_t param;
-	uint8_t  reserved[2];
 };
 
 struct ImuPayload {
@@ -85,14 +69,7 @@ struct StateSyncPayload {
 	uint16_t sequence;
 };
 
-struct DsoRequestPayload {
-	uint8_t  request_type;
-	uint16_t request_id;
-	uint16_t key;
-};
-
-struct DsoResponsePayload {
-	uint16_t request_id;
+struct DsoTargetPayload {
 	uint8_t  status;
 	uint16_t catalog_number;
 	uint8_t  object_type;
@@ -104,12 +81,11 @@ struct DsoResponsePayload {
 };
 
 struct DebugPayload {
-	uint8_t data[64];
+	uint8_t data[16];
 };
 
 #pragma pack(pop)
 
-// CRC-16/CCITT-FALSE (polynomial 0x1021, init 0xFFFF)
 inline uint16_t crc16_ccitt(const uint8_t* buf, size_t len) {
 	static constexpr uint16_t table[256] = {
 		0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50A5, 0x60C6, 0x70E7,
