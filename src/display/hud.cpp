@@ -69,12 +69,11 @@ void InitHud() {
 	last_debug_count = 0;
 }
 
-// Top-left: telescope state (INIT, SETUP, IDLE, SEARCH, FOUND)
+// Top-left: telescope state (INIT, IDLE, SEARCH, FOUND)
 static void DrawTopLeft() {
 	const char* state_str = nullptr;
 	switch (GetTelescopeState()) {
 	case TelescopeState::INIT:   state_str = "INIT";   break;
-	case TelescopeState::SETUP:  state_str = "SETUP";  break;
 	case TelescopeState::IDLE:   state_str = "IDLE";   break;
 	case TelescopeState::SEARCH: state_str = "SEARCH"; break;
 	case TelescopeState::FOUND:  state_str = "FOUND";  break;

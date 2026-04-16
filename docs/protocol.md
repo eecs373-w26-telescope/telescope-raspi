@@ -87,7 +87,7 @@ Sent by Nucleo on every state transition. Raspi mirrors this as its authoritativ
 
 ```
 Offset  Type      Field      Notes
-0       uint8_t   state      TelescopeState: INIT=0, SETUP=1, IDLE=2, SEARCH=3, FOUND=4
+0       uint8_t   state      TelescopeState: INIT=0, IDLE=1, SEARCH=2, FOUND=3
 1       uint8_t   flags      reserved bitfield
 2       uint16_t  sequence   monotonic counter for gap detection
 ```
