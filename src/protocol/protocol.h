@@ -18,8 +18,9 @@ enum PacketId : uint8_t {
 	PACKET_STATE_SYNC   = 0x04,
 	PACKET_DSO_TARGET   = 0x05,
 	PACKET_FOV_OBJECTS  = 0x06,
-	PACKET_TIME_MODE    = 0x07,
-	PACKET_TIME         = 0x10,
+	PACKET_TIME_MODE        = 0x07,
+	PACKET_SEARCH_GUIDANCE  = 0x08,
+	PACKET_TIME             = 0x10,
 	PACKET_DEBUG        = 0xFF,
 };
 
@@ -118,6 +119,13 @@ struct FovObjectEntry {
 struct FovObjectsPayload {
 	uint8_t        count;
 	FovObjectEntry objects[FOV_OBJECTS_MAX];
+};
+
+struct SearchGuidancePayload {
+	int16_t dx_e4;       // unit direction vector x * 10000 (toward target in FOV coords)
+	int16_t dy_e4;       // unit direction vector y * 10000
+	int16_t distance_e2; // angular distance to target in degrees * 100
+	uint8_t has_target;  // 1 = target selected, 0 = no active target
 };
 
 #pragma pack(pop)

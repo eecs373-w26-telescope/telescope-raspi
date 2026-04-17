@@ -38,6 +38,11 @@ void SharedState::updateTimeMode(const uint8_t* payload) {
 	time_mode_received = true;
 }
 
+void SharedState::updateSearchGuidance(const uint8_t* payload) {
+	std::memcpy(&search_guidance, payload, sizeof(SearchGuidancePayload));
+	search_guidance_received = true;
+}
+
 void SharedState::updateFovObjects(const uint8_t* payload, uint8_t length) {
 	if (length < 1) return;
 	uint8_t count = payload[0];

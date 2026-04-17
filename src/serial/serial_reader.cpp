@@ -44,6 +44,9 @@ static void dispatch(uint8_t packet_id, const uint8_t* payload, uint8_t length) 
 	case PACKET_TIME_MODE:
 		if (length >= sizeof(TimeModePayload)) g_shared_state.updateTimeMode(payload);
 		break;
+	case PACKET_SEARCH_GUIDANCE:
+		if (length >= sizeof(SearchGuidancePayload)) g_shared_state.updateSearchGuidance(payload);
+		break;
 	default:
 		break;
 	}

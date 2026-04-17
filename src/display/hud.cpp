@@ -141,45 +141,66 @@ static void DrawTopRight() {
 	MonoText(dist_buf, arrow_cx - tw / 2.0f, arrow_cy + half_len + 6.0f, FONT_L, DisplayColor());
 }
 
-// Bottom-left: calibration status + compass heading
+// Bottom-left: encoder yaw/pitch + compass heading + calibration indicators
 static void DrawBottomLeft() {
 	float heading_deg;
-	bool imu_received;
+	bool imu_received, enc_received;
 	uint8_t calibration;
+	uint16_t yaw_raw, pitch_raw;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
 		heading_deg  = static_cast<float>(g_shared_state.imu.heading) / 16.0f;
 		imu_received = g_shared_state.imu_received;
 		calibration  = g_shared_state.imu.calibration;
+		yaw_raw      = g_shared_state.encoder.yaw_raw;
+		pitch_raw    = g_shared_state.encoder.pitch_raw;
+		enc_received = g_shared_state.encoder_received;
 	}
 
 	uint8_t accel_cal = (calibration >> 2) & 0x03;
 	uint8_t mag_cal   = calibration & 0x03;
 
 	float s = static_cast<float>(screenRes);
-	float x = PAD + 6.0f;
-	float hdg_y = s - PAD - FONT_L - 6.0f;
-	float cal_y = hdg_y - FONT_S - 2.0f;
+	float x = PAD + 8.0f;
 
-	Color accel_color = (imu_received && accel_cal == 3) ? DisplayColor() : DimColor();
-	Color mag_color   = (imu_received && mag_cal == 3)   ? DisplayColor() : DimColor();
+	float hdg_y = s - PAD - 8.0f - FONT_L;
+	float pit_y = hdg_y - FONT_S - 1.0f;
+	float yaw_y = pit_y - FONT_S - 1.0f;
 
-	char a_buf[4];
-	snprintf(a_buf, sizeof(a_buf), "A%c", imu_received ? ('0' + accel_cal) : '-');
-	MonoText(a_buf, x, cal_y, FONT_S, accel_color);
-	float a_width = MonoWidth(a_buf, FONT_S);
-
-	char m_buf[4];
-	snprintf(m_buf, sizeof(m_buf), "M%c", imu_received ? ('0' + mag_cal) : '-');
-	MonoText(m_buf, x + a_width + 12.0f, cal_y, FONT_S, mag_color);
+	float yaw_deg   = (static_cast<float>(yaw_raw)   / 16383.0f) * 360.0f;
+	float pitch_deg = (static_cast<float>(pitch_raw)  / 16383.0f) * 360.0f;
+	char yaw_buf[16], pit_buf[16];
+	if (enc_received) {
+		snprintf(yaw_buf, sizeof(yaw_buf), "YAW %05.1f", yaw_deg);
+		snprintf(pit_buf, sizeof(pit_buf), "PIT %05.1f", pitch_deg);
+	} else {
+		snprintf(yaw_buf, sizeof(yaw_buf), "YAW ---.-");
+		snprintf(pit_buf, sizeof(pit_buf), "PIT ---.-");
+	}
+	Color enc_color = enc_received ? DisplayColor() : DimColor();
+	MonoText(yaw_buf, x, yaw_y, FONT_S, enc_color);
+	MonoText(pit_buf, x, pit_y, FONT_S, enc_color);
 
 	char hdg_buf[16];
 	if (imu_received) {
 		snprintf(hdg_buf, sizeof(hdg_buf), "HDG %05.1f", heading_deg);
 	} else {
-		snprintf(hdg_buf, sizeof(hdg_buf), "HDG ---");
+		snprintf(hdg_buf, sizeof(hdg_buf), "HDG ---.-");
 	}
 	MonoText(hdg_buf, x, hdg_y, FONT_L, imu_received ? DisplayColor() : DimColor());
+
+	float hdg_w = MonoWidth(hdg_buf, FONT_L);
+	float cal_x = x + hdg_w + 12.0f;
+	float cal_y = hdg_y + (FONT_L - FONT_S) / 2.0f;
+
+	Color accel_color = (imu_received && accel_cal == 3) ? DisplayColor() : DimColor();
+	Color mag_color   = (imu_received && mag_cal   == 3) ? DisplayColor() : DimColor();
+	char a_buf[4], m_buf[4];
+	snprintf(a_buf, sizeof(a_buf), "A%c", imu_received ? ('0' + accel_cal) : '-');
+	snprintf(m_buf, sizeof(m_buf), "M%c", imu_received ? ('0' + mag_cal)   : '-');
+	MonoText(a_buf, cal_x, cal_y, FONT_S, accel_color);
+	float a_w = MonoWidth(a_buf, FONT_S);
+	MonoText(m_buf, cal_x + a_w + 8.0f, cal_y, FONT_S, mag_color);
 }
 
 // Bottom-right: GPS fix indicator + debug connection indicator
@@ -225,39 +246,37 @@ static void DrawBottomRight() {
 	MonoText(dbg_label, dbg_text_x, dbg_row_y, FONT_S, dbg_color);
 }
 
-// Center: encoder debug display
+// Center: search guidance arrow + distance to target
 static void DrawCenter() {
-	uint16_t yaw_raw;
-	uint16_t pitch_raw;
-	bool enc_received;
+	bool has_target;
+	float dx, dy, distance_deg;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
-		yaw_raw = g_shared_state.encoder.yaw_raw;
-		pitch_raw = g_shared_state.encoder.pitch_raw;
-		enc_received = g_shared_state.encoder_received;
+		if (!g_shared_state.search_guidance_received) return;
+		has_target   = g_shared_state.search_guidance.has_target != 0;
+		dx           = g_shared_state.search_guidance.dx_e4 / 10000.0f;
+		dy           = g_shared_state.search_guidance.dy_e4 / 10000.0f;
+		distance_deg = g_shared_state.search_guidance.distance_e2 / 100.0f;
 	}
+
+	if (!has_target) return;
 
 	float cx = screenRes / 2.0f;
 	float cy = screenRes / 2.0f;
+	constexpr float ARROW_HALF = 50.0f;
 
-	float yaw_deg = (static_cast<float>(yaw_raw) / 16383.0f) * 360.0f;
-	float pitch_deg = (static_cast<float>(pitch_raw) / 16383.0f) * 360.0f;
-
-	char yaw_buf[16];
-	char pitch_buf[16];
-	if (enc_received) {
-		snprintf(yaw_buf, sizeof(yaw_buf), "YAW %05.1f", yaw_deg);
-		snprintf(pitch_buf, sizeof(pitch_buf), "PIT %05.1f", pitch_deg);
+	if (dx * dx + dy * dy < 1e-6f) {
+		DrawCircleV({cx, cy}, 8.0f, DisplayColor());
 	} else {
-		snprintf(yaw_buf, sizeof(yaw_buf), "YAW ---.-");
-		snprintf(pitch_buf, sizeof(pitch_buf), "PIT ---.-");
+		Vector2 arrow_start = {cx - ARROW_HALF * dx, cy - ARROW_HALF * dy};
+		Vector2 arrow_end   = {cx + ARROW_HALF * dx, cy + ARROW_HALF * dy};
+		DrawArrow(arrow_start, arrow_end, 3.0f, 14.0f, DisplayColor());
 	}
 
-	Color enc_color = enc_received ? DisplayColor() : DimColor();
-	float yaw_w = MonoWidth(yaw_buf, FONT_S);
-	float pitch_w = MonoWidth(pitch_buf, FONT_S);
-	MonoText(yaw_buf, cx - yaw_w / 2.0f, cy - FONT_S, FONT_S, enc_color);
-	MonoText(pitch_buf, cx - pitch_w / 2.0f, cy + 2.0f, FONT_S, enc_color);
+	char dist_buf[16];
+	snprintf(dist_buf, sizeof(dist_buf), "%.1f", distance_deg);
+	float tw = MonoWidth(dist_buf, FONT_L);
+	MonoText(dist_buf, cx - tw / 2.0f, cy + ARROW_HALF + 6.0f, FONT_L, DisplayColor());
 }
 
 // Decorative corner bracket accents
