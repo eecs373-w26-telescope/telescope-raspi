@@ -1,9 +1,11 @@
 #include "serial/serial_reader.h"
+#include "protocol/protocol.h"
 #include "protocol/stream_decoder.h"
 #include "protocol/shared_state.h"
 
 #include <thread>
 #include <atomic>
+#include <mutex>
 #include <fcntl.h>
 #include <unistd.h>
 #include <termios.h>
@@ -11,6 +13,7 @@
 static std::atomic<bool> running{false};
 static std::thread reader_thread;
 static int serial_fd = -1;
+static std::mutex tx_mutex;
 
 static void dispatch(uint8_t packet_id, const uint8_t* payload, uint8_t length) {
 	std::lock_guard<std::mutex> lock(g_shared_state.mtx);
@@ -97,6 +100,25 @@ void StartSerialReader(const char* device) {
 
 	running.store(true);
 	reader_thread = std::thread(reader_loop);
+}
+
+bool SendPacket(uint8_t packet_id, const uint8_t* payload, uint8_t length) {
+	if (serial_fd < 0 || length > MAX_PAYLOAD_SIZE) return false;
+
+	uint8_t frame[6 + MAX_PAYLOAD_SIZE];
+	frame[0] = SYNC_HI;
+	frame[1] = SYNC_LO;
+	frame[2] = packet_id;
+	frame[3] = length;
+	for (uint8_t i = 0; i < length; ++i) frame[4 + i] = payload[i];
+
+	uint16_t crc = crc16_ccitt(frame, 4 + length);
+	frame[4 + length]     = static_cast<uint8_t>(crc & 0xFF);
+	frame[5 + length]     = static_cast<uint8_t>(crc >> 8);
+
+	std::lock_guard<std::mutex> lock(tx_mutex);
+	ssize_t written = write(serial_fd, frame, 6 + length);
+	return written == static_cast<ssize_t>(6 + length);
 }
 
 void StopSerialReader() {

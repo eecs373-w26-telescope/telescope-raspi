@@ -5,6 +5,7 @@
 #include "globals.h"
 #include "display/display.h"
 #include "serial/serial_reader.h"
+#include "serial/time_sender.h"
 
 int screenRes = 768;
 Color displayColor = RED;
@@ -29,6 +30,7 @@ int main() {
 	SetTextureFilter(monoFont.texture, TEXTURE_FILTER_POINT);
 
 	StartSerialReader("/dev/ttyS0");
+	StartTimeSender();
 
 	InitDisplay();
 
@@ -36,6 +38,7 @@ int main() {
 		DrawFrame();
 	}
 
+	StopTimeSender();
 	StopSerialReader();
 	CleanupDisplay();
 	UnloadFont(monoFont);

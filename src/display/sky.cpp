@@ -1,6 +1,7 @@
 #include "display/sky.h"
 #include "globals.h"
 #include "raylib.h"
+#include <cstdio>
 
 static RenderTexture2D circleMask;
 
@@ -26,4 +27,18 @@ void DrawSky() {
 
 void CleanupSky() {
 	UnloadRenderTexture(circleMask);
+}
+
+void DrawDSO(float x, float y, uint16_t catalog_number) {
+	if (x * x + y * y > 1.0f) return;
+
+	float half = screenRes / 2.0f;
+	float sx = half + x * half;
+	float sy = half + y * half;
+
+	DrawCircleV({sx, sy}, 3.0f, displayColor);
+
+	char label[8];
+	snprintf(label, sizeof(label), "%u", catalog_number);
+	DrawTextEx(monoFont, label, {sx + 6.0f, sy - 8.0f}, 20.0f, 0.0f, DimColor());
 }

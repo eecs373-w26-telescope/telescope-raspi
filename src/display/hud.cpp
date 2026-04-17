@@ -182,7 +182,7 @@ static void DrawBottomRight() {
 	float bottom_y = s - PAD - 6.0f;
 
 	bool has_fix = (gps_received && num_sats > 0);
-	Color gps_color = has_fix ? GREEN : DimColor();
+	Color gps_color = has_fix ? displayColor : DimColor();
 	char gps_label[16];
 	snprintf(gps_label, sizeof(gps_label), "GPS %02d", num_sats);
 	float gps_tw = MonoWidth(gps_label, FONT_S);
@@ -191,7 +191,7 @@ static void DrawBottomRight() {
 	DrawCircleV({gps_text_x - 16.0f, gps_row_y + FONT_S / 2.0f}, 6.0f, gps_color);
 	MonoText(gps_label, gps_text_x, gps_row_y, FONT_S, gps_color);
 
-	Color dbg_color = (ping_flash_timer > 0.0f) ? GREEN : DimColor();
+	Color dbg_color = (ping_flash_timer > 0.0f) ? displayColor : DimColor();
 	const char* dbg_label = "DBG";
 	float dbg_tw = MonoWidth(dbg_label, FONT_S);
 	float dbg_row_y = gps_row_y - FONT_S - 6.0f;

@@ -8,7 +8,8 @@ constexpr uint8_t SYNC_HI = 0xAB;
 constexpr uint8_t SYNC_LO = 0xCD;
 constexpr uint8_t MAX_PAYLOAD_SIZE = 128;
 
-// All packets: Nucleo -> Raspi
+// Nucleo -> Raspi: 0x01-0x0F
+// Raspi  -> Nucleo: 0x10-0x1F
 // Bidirectional: 0xFF
 enum PacketId : uint8_t {
 	PACKET_GPS          = 0x01,
@@ -16,6 +17,7 @@ enum PacketId : uint8_t {
 	PACKET_IMU          = 0x03,
 	PACKET_STATE_SYNC   = 0x04,
 	PACKET_DSO_TARGET   = 0x05,
+	PACKET_TIME         = 0x10,
 	PACKET_DEBUG        = 0xFF,
 };
 
@@ -78,6 +80,15 @@ struct DsoTargetPayload {
 	int16_t  magnitude_e2;
 	uint8_t  constellation;
 	char     name[16];
+};
+
+struct TimePayload {
+	uint16_t year;
+	uint8_t  month;
+	uint8_t  day;
+	uint8_t  hour;
+	uint8_t  minute;
+	uint8_t  second;
 };
 
 struct DebugPayload {
