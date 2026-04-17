@@ -17,6 +17,7 @@ enum PacketId : uint8_t {
 	PACKET_IMU          = 0x03,
 	PACKET_STATE_SYNC   = 0x04,
 	PACKET_DSO_TARGET   = 0x05,
+	PACKET_FOV_OBJECTS  = 0x06,
 	PACKET_TIME         = 0x10,
 	PACKET_DEBUG        = 0xFF,
 };
@@ -93,6 +94,19 @@ struct TimePayload {
 
 struct DebugPayload {
 	uint8_t data[16];
+};
+
+static constexpr uint8_t FOV_OBJECTS_MAX = 21;
+
+struct FovObjectEntry {
+	uint16_t messier_id;
+	int16_t  x_e4;
+	int16_t  y_e4;
+};
+
+struct FovObjectsPayload {
+	uint8_t        count;
+	FovObjectEntry objects[FOV_OBJECTS_MAX];
 };
 
 #pragma pack(pop)

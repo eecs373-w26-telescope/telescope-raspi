@@ -38,6 +38,9 @@ static void dispatch(uint8_t packet_id, const uint8_t* payload, uint8_t length) 
 	case PACKET_DEBUG:
 		if (length >= sizeof(DebugPayload)) g_shared_state.updateDebug(payload);
 		break;
+	case PACKET_FOV_OBJECTS:
+		g_shared_state.updateFovObjects(payload, length);
+		break;
 	default:
 		break;
 	}

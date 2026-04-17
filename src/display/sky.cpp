@@ -1,7 +1,9 @@
 #include "display/sky.h"
 #include "globals.h"
+#include "protocol/shared_state.h"
 #include "raylib.h"
 #include <cstdio>
+#include <mutex>
 
 static RenderTexture2D circleMask;
 
@@ -24,16 +26,17 @@ void DrawSky() {
 	DrawTexturePro(circleMask.texture, src, dst, {0, 0}, 0, WHITE);
 	EndBlendMode();
 
-	// Test DSOs at various positions to validate label placement
-	DrawDSO( 0.0f,   0.0f,  1);   // center
-	DrawDSO( 0.85f,  0.0f,  31);  // right edge
-	DrawDSO(-0.85f,  0.0f,  42);  // left edge
-	DrawDSO( 0.0f,  -0.85f, 45);  // top
-	DrawDSO( 0.0f,   0.85f, 57);  // bottom
-	DrawDSO( 0.6f,   0.6f,  81);  // bottom-right
-	DrawDSO(-0.6f,   0.6f,  101); // bottom-left
-	DrawDSO( 0.6f,  -0.6f,  13);  // top-right
-	DrawDSO(-0.6f,  -0.6f,  97);  // top-left
+	{
+		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
+		if (g_shared_state.fov_objects_received) {
+			const FovObjectsPayload& fov = g_shared_state.fov_objects;
+			for (uint8_t i = 0; i < fov.count; ++i) {
+				float x = fov.objects[i].x_e4 / 10000.0f;
+				float y = fov.objects[i].y_e4 / 10000.0f;
+				DrawDSO(x, y, fov.objects[i].messier_id);
+			}
+		}
+	}
 }
 
 void CleanupSky() {

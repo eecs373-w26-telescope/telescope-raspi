@@ -5,7 +5,7 @@ MOCK=false
 while [[ $# -gt 0 ]]; do
 	case $1 in
 		--mock) MOCK=true; shift ;;
-		*) echo "Unknown option: $1" >&2; exit 1 ;;
+		*) echo 2 "Unknown option: $1" >&2; exit 1 ;;
 	esac
 done
 
