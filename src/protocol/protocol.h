@@ -18,6 +18,7 @@ enum PacketId : uint8_t {
 	PACKET_STATE_SYNC   = 0x04,
 	PACKET_DSO_TARGET   = 0x05,
 	PACKET_FOV_OBJECTS  = 0x06,
+	PACKET_TIME_MODE    = 0x07,
 	PACKET_TIME         = 0x10,
 	PACKET_DEBUG        = 0xFF,
 };
@@ -94,6 +95,16 @@ struct TimePayload {
 
 struct DebugPayload {
 	uint8_t data[16];
+};
+
+enum TimeMode : uint8_t {
+	TIME_MODE_SATELLITE = 0,
+	TIME_MODE_RASPI     = 1,
+	TIME_MODE_COMPILE   = 2,
+};
+
+struct TimeModePayload {
+	uint8_t mode;
 };
 
 static constexpr uint8_t FOV_OBJECTS_MAX = 21;

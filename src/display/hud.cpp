@@ -91,6 +91,22 @@ static void DrawTopLeft() {
 	snprintf(clock_buf, sizeof(clock_buf), "%02d:%02d:%02d",
 		utc.tm_hour, utc.tm_min, utc.tm_sec);
 	MonoText(clock_buf, x, y + FONT_XL + 4.0f, FONT_S, displayColor);
+
+	uint8_t time_mode;
+	bool time_mode_received;
+	{
+		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
+		time_mode          = g_shared_state.time_mode.mode;
+		time_mode_received = g_shared_state.time_mode_received;
+	}
+	const char* mode_label = "?";
+	Color mode_color = DimColor();
+	if (time_mode_received) {
+		if (time_mode == TIME_MODE_SATELLITE)      { mode_label = "S"; mode_color = displayColor; }
+		else if (time_mode == TIME_MODE_RASPI)     { mode_label = "R"; mode_color = displayColor; }
+		else                                       { mode_label = "C"; mode_color = DimColor(); }
+	}
+	MonoText(mode_label, x, y + FONT_XL + 4.0f + FONT_S + 4.0f, FONT_XL, mode_color);
 }
 
 // Top-right: target direction arrow + distance to target, or idle dot when no target

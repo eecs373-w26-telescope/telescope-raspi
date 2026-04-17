@@ -33,6 +33,11 @@ void SharedState::updateDebug(const uint8_t* payload) {
 	debug_update_count++;
 }
 
+void SharedState::updateTimeMode(const uint8_t* payload) {
+	std::memcpy(&time_mode, payload, sizeof(TimeModePayload));
+	time_mode_received = true;
+}
+
 void SharedState::updateFovObjects(const uint8_t* payload, uint8_t length) {
 	if (length < 1) return;
 	uint8_t count = payload[0];

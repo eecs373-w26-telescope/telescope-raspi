@@ -41,6 +41,9 @@ static void dispatch(uint8_t packet_id, const uint8_t* payload, uint8_t length) 
 	case PACKET_FOV_OBJECTS:
 		g_shared_state.updateFovObjects(payload, length);
 		break;
+	case PACKET_TIME_MODE:
+		if (length >= sizeof(TimeModePayload)) g_shared_state.updateTimeMode(payload);
+		break;
 	default:
 		break;
 	}
