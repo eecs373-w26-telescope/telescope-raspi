@@ -80,9 +80,9 @@ static void DrawTopLeft() {
 	case TelescopeState::FOUND:  state_str = "FOUND";  break;
 	}
 
-	float x = PAD + 14.0f;
-	float y = PAD + 14.0f;
-	MonoText(state_str, x, y, FONT_XL, displayColor);
+	float x = PAD + 8.0f;
+	float y = PAD + 8.0f;
+	MonoText(state_str, x, y, FONT_XL, DisplayColor());
 
 	time_t now = time(nullptr);
 	struct tm utc{};
@@ -90,7 +90,7 @@ static void DrawTopLeft() {
 	char clock_buf[12];
 	snprintf(clock_buf, sizeof(clock_buf), "%02d:%02d:%02d",
 		utc.tm_hour, utc.tm_min, utc.tm_sec);
-	MonoText(clock_buf, x, y + FONT_XL + 4.0f, FONT_S, displayColor);
+	MonoText(clock_buf, x, y + FONT_XL + 1.0f, FONT_S, DisplayColor());
 
 	uint8_t time_mode;
 	bool time_mode_received;
@@ -99,13 +99,12 @@ static void DrawTopLeft() {
 		time_mode          = g_shared_state.time_mode.mode;
 		time_mode_received = g_shared_state.time_mode_received;
 	}
-	const char* mode_label = "?";
 	if (time_mode_received) {
-		if (time_mode == TIME_MODE_SATELLITE)      mode_label = "S";
-		else if (time_mode == TIME_MODE_RASPI)     mode_label = "R";
-		else                                       mode_label = "C";
+		const char* mode_label = "C";
+		if (time_mode == TIME_MODE_SATELLITE)  mode_label = "S";
+		else if (time_mode == TIME_MODE_RASPI) mode_label = "R";
+		MonoText(mode_label, x, y + FONT_XL + 1.0f + FONT_S + 1.0f, FONT_XL, DisplayColor());
 	}
-	MonoText(mode_label, x, y + FONT_XL + 4.0f + FONT_S + 4.0f, FONT_XL, displayColor);
 }
 
 // Top-right: target direction arrow + distance to target, or idle dot when no target
@@ -134,12 +133,12 @@ static void DrawTopRight() {
 		arrow_cx + half_len * cosf(mock_direction),
 		arrow_cy + half_len * sinf(mock_direction)
 	};
-	DrawArrow(arrow_start, arrow_end, 3.0f, 12.0f, displayColor);
+	DrawArrow(arrow_start, arrow_end, 3.0f, 12.0f, DisplayColor());
 
 	char dist_buf[32];
 	snprintf(dist_buf, sizeof(dist_buf), "%.1f", mock_distance_deg);
 	float tw = MonoWidth(dist_buf, FONT_L);
-	MonoText(dist_buf, arrow_cx - tw / 2.0f, arrow_cy + half_len + 6.0f, FONT_L, displayColor);
+	MonoText(dist_buf, arrow_cx - tw / 2.0f, arrow_cy + half_len + 6.0f, FONT_L, DisplayColor());
 }
 
 // Bottom-left: calibration status + compass heading
@@ -162,8 +161,8 @@ static void DrawBottomLeft() {
 	float hdg_y = s - PAD - FONT_L - 6.0f;
 	float cal_y = hdg_y - FONT_S - 2.0f;
 
-	Color accel_color = (imu_received && accel_cal == 3) ? displayColor : DimColor();
-	Color mag_color   = (imu_received && mag_cal == 3)   ? displayColor : DimColor();
+	Color accel_color = (imu_received && accel_cal == 3) ? DisplayColor() : DimColor();
+	Color mag_color   = (imu_received && mag_cal == 3)   ? DisplayColor() : DimColor();
 
 	char a_buf[4];
 	snprintf(a_buf, sizeof(a_buf), "A%c", imu_received ? ('0' + accel_cal) : '-');
@@ -180,7 +179,7 @@ static void DrawBottomLeft() {
 	} else {
 		snprintf(hdg_buf, sizeof(hdg_buf), "HDG ---");
 	}
-	MonoText(hdg_buf, x, hdg_y, FONT_L, imu_received ? displayColor : DimColor());
+	MonoText(hdg_buf, x, hdg_y, FONT_L, imu_received ? DisplayColor() : DimColor());
 }
 
 // Bottom-right: GPS fix indicator + debug connection indicator
@@ -208,7 +207,7 @@ static void DrawBottomRight() {
 	float bottom_y = s - PAD - 6.0f;
 
 	bool has_fix = (gps_received && num_sats > 0);
-	Color gps_color = has_fix ? displayColor : DimColor();
+	Color gps_color = has_fix ? DisplayColor() : DimColor();
 	char gps_label[16];
 	snprintf(gps_label, sizeof(gps_label), "GPS %02d", num_sats);
 	float gps_tw = MonoWidth(gps_label, FONT_S);
@@ -217,7 +216,7 @@ static void DrawBottomRight() {
 	DrawCircleV({gps_text_x - 16.0f, gps_row_y + FONT_S / 2.0f}, 6.0f, gps_color);
 	MonoText(gps_label, gps_text_x, gps_row_y, FONT_S, gps_color);
 
-	Color dbg_color = (ping_flash_timer > 0.0f) ? displayColor : DimColor();
+	Color dbg_color = (ping_flash_timer > 0.0f) ? DisplayColor() : DimColor();
 	const char* dbg_label = "DBG";
 	float dbg_tw = MonoWidth(dbg_label, FONT_S);
 	float dbg_row_y = gps_row_y - FONT_S - 6.0f;
@@ -254,7 +253,7 @@ static void DrawCenter() {
 		snprintf(pitch_buf, sizeof(pitch_buf), "PIT ---.-");
 	}
 
-	Color enc_color = enc_received ? displayColor : DimColor();
+	Color enc_color = enc_received ? DisplayColor() : DimColor();
 	float yaw_w = MonoWidth(yaw_buf, FONT_S);
 	float pitch_w = MonoWidth(pitch_buf, FONT_S);
 	MonoText(yaw_buf, cx - yaw_w / 2.0f, cy - FONT_S, FONT_S, enc_color);
@@ -265,20 +264,20 @@ static void DrawCenter() {
 static void DrawCornerAccents() {
 	float b = 30.0f;
 
-	DrawLineEx({PAD, PAD}, {PAD + b, PAD}, LINE_THICK, displayColor);
-	DrawLineEx({PAD, PAD}, {PAD, PAD + b}, LINE_THICK, displayColor);
-	DrawLineEx({screenRes - PAD, PAD}, {screenRes - PAD - b, PAD}, LINE_THICK, displayColor);
-	DrawLineEx({screenRes - PAD, PAD}, {screenRes - PAD, PAD + b}, LINE_THICK, displayColor);
-	DrawLineEx({PAD, screenRes - PAD}, {PAD + b, screenRes - PAD}, LINE_THICK, displayColor);
-	DrawLineEx({PAD, screenRes - PAD}, {PAD, screenRes - PAD - b}, LINE_THICK, displayColor);
-	DrawLineEx({screenRes - PAD, screenRes - PAD}, {screenRes - PAD - b, screenRes - PAD}, LINE_THICK, displayColor);
-	DrawLineEx({screenRes - PAD, screenRes - PAD}, {screenRes - PAD, screenRes - PAD - b}, LINE_THICK, displayColor);
+	DrawLineEx({PAD, PAD}, {PAD + b, PAD}, LINE_THICK, DisplayColor());
+	DrawLineEx({PAD, PAD}, {PAD, PAD + b}, LINE_THICK, DisplayColor());
+	DrawLineEx({screenRes - PAD, PAD}, {screenRes - PAD - b, PAD}, LINE_THICK, DisplayColor());
+	DrawLineEx({screenRes - PAD, PAD}, {screenRes - PAD, PAD + b}, LINE_THICK, DisplayColor());
+	DrawLineEx({PAD, screenRes - PAD}, {PAD + b, screenRes - PAD}, LINE_THICK, DisplayColor());
+	DrawLineEx({PAD, screenRes - PAD}, {PAD, screenRes - PAD - b}, LINE_THICK, DisplayColor());
+	DrawLineEx({screenRes - PAD, screenRes - PAD}, {screenRes - PAD - b, screenRes - PAD}, LINE_THICK, DisplayColor());
+	DrawLineEx({screenRes - PAD, screenRes - PAD}, {screenRes - PAD, screenRes - PAD - b}, LINE_THICK, DisplayColor());
 }
 
 void DrawHud() {
 	UpdateMockData();
 
-	DrawRing({screenRes / 2.0f, screenRes / 2.0f}, screenRes / 2.0f - LINE_THICK, screenRes / 2.0f, 0.0f, 360.0f, 64, displayColor);
+	DrawRing({screenRes / 2.0f, screenRes / 2.0f}, screenRes / 2.0f - LINE_THICK, screenRes / 2.0f, 0.0f, 360.0f, 64, DisplayColor());
 
 	DrawCornerAccents();
 	DrawTopLeft();

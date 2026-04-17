@@ -8,7 +8,7 @@
 #include "serial/time_sender.h"
 
 int screenRes = 768;
-Color displayColor = RED;
+Color _displayColor = RED;
 uint8_t dimAlpha = 80;
 Font monoFont = {0};
 

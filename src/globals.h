@@ -3,11 +3,10 @@
 #include "raylib.h"
 #include <stdint.h>
 
-extern int   screenRes;
-extern Color displayColor;
+extern int     screenRes;
+extern Color   _displayColor;
 extern uint8_t dimAlpha;
-extern Font  monoFont;
+extern Font    monoFont;
 
-inline Color DimColor() {
-	return {displayColor.r, displayColor.g, displayColor.b, dimAlpha};
-}
+inline Color DisplayColor() { return _displayColor; }
+inline Color DimColor()     { return {_displayColor.r, _displayColor.g, _displayColor.b, dimAlpha}; }
