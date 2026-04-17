@@ -150,7 +150,7 @@ static void DrawBottomLeft() {
 
 	char hdg_buf[16];
 	if (imu_received) {
-		snprintf(hdg_buf, sizeof(hdg_buf), "HDG %03.0f", heading_deg);
+		snprintf(hdg_buf, sizeof(hdg_buf), "HDG %05.1f", heading_deg);
 	} else {
 		snprintf(hdg_buf, sizeof(hdg_buf), "HDG ---");
 	}
