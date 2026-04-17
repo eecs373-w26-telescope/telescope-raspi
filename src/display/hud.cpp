@@ -5,24 +5,9 @@
 #include "raylib.h"
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <mutex>
-
-// ---- Mock target data (replace with real search state) ----
-static float mock_direction = 0.0f;
-static float mock_distance_deg = 0.0f;
-static float mock_time = 0.0f;
-static bool mock_has_target = false;
-
-static void UpdateMockData() {
-	mock_time += GetFrameTime();
-	if (IsKeyPressed(KEY_T)) mock_has_target = !mock_has_target;
-	if (mock_has_target) {
-		mock_direction = fmodf(mock_time * 0.5f, 2.0f * PI);
-		mock_distance_deg = 20.0f + 15.0f * sinf(mock_time * 0.3f);
-	}
-}
-// ---- End mock data ----
 
 static constexpr float PAD        = 3.0f;
 static constexpr float PING_FLASH = 0.5f;
@@ -62,10 +47,6 @@ static void DrawArrow(Vector2 start, Vector2 end, float thickness, float headSiz
 }
 
 void InitHud() {
-	mock_direction = 0.0f;
-	mock_distance_deg = 0.0f;
-	mock_time = 0.0f;
-	mock_has_target = false;
 	ping_flash_timer = 0.0f;
 	last_debug_count = 0;
 }
@@ -107,11 +88,27 @@ static void DrawTopLeft() {
 	}
 }
 
-// Top-right: target direction arrow + distance to target, or idle dot when no target
+// Top-right: target name + direction arrow + distance, or idle indicator when no target
 static void DrawTopRight() {
+	bool has_target;
+	char name[17]{};
+	float dx, dy, distance_deg;
+	{
+		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
+		has_target = g_shared_state.dso_target_received &&
+		             g_shared_state.dso_target.status == DSO_OK;
+		if (has_target) {
+			std::memcpy(name, g_shared_state.dso_target.name, 16);
+			name[16] = '\0';
+		}
+		dx           = g_shared_state.search_guidance.dx_e4 / 10000.0f;
+		dy           = g_shared_state.search_guidance.dy_e4 / 10000.0f;
+		distance_deg = g_shared_state.search_guidance.distance_e2 / 100.0f;
+	}
+
 	float s = static_cast<float>(screenRes);
 
-	if (!mock_has_target) {
+	if (!has_target) {
 		const char* label = "NO TGT";
 		float tw = MonoWidth(label, FONT_S);
 		float tx = s - PAD - 14.0f - tw;
@@ -121,24 +118,22 @@ static void DrawTopRight() {
 	}
 
 	float arrow_cx = s - PAD - 50.0f;
-	float arrow_cy = PAD + 40.0f;
-	float arrow_len = 44.0f;
-	float half_len = arrow_len / 2.0f;
+	float arrow_cy = PAD + 55.0f;
+	constexpr float half_len = 22.0f;
 
-	Vector2 arrow_start = {
-		arrow_cx - half_len * cosf(mock_direction),
-		arrow_cy - half_len * sinf(mock_direction)
-	};
-	Vector2 arrow_end = {
-		arrow_cx + half_len * cosf(mock_direction),
-		arrow_cy + half_len * sinf(mock_direction)
-	};
-	DrawArrow(arrow_start, arrow_end, 3.0f, 12.0f, DisplayColor());
+	if (dx * dx + dy * dy > 1e-6f) {
+		Vector2 arrow_start = {arrow_cx - half_len * dx, arrow_cy - half_len * dy};
+		Vector2 arrow_end   = {arrow_cx + half_len * dx, arrow_cy + half_len * dy};
+		DrawArrow(arrow_start, arrow_end, 3.0f, 12.0f, DisplayColor());
+	}
 
-	char dist_buf[32];
-	snprintf(dist_buf, sizeof(dist_buf), "%.1f", mock_distance_deg);
-	float tw = MonoWidth(dist_buf, FONT_L);
-	MonoText(dist_buf, arrow_cx - tw / 2.0f, arrow_cy + half_len + 6.0f, FONT_L, DisplayColor());
+	char dist_buf[16];
+	snprintf(dist_buf, sizeof(dist_buf), "%.1f", distance_deg);
+	float dist_tw = MonoWidth(dist_buf, FONT_L);
+	MonoText(dist_buf, arrow_cx - dist_tw / 2.0f, arrow_cy + half_len + 4.0f, FONT_L, DisplayColor());
+
+	float name_tw = MonoWidth(name, FONT_S);
+	MonoText(name, arrow_cx - name_tw / 2.0f, PAD + 8.0f, FONT_S, DisplayColor());
 }
 
 // Bottom-left: encoder yaw/pitch + compass heading + calibration indicators
@@ -294,8 +289,6 @@ static void DrawCornerAccents() {
 }
 
 void DrawHud() {
-	UpdateMockData();
-
 	DrawRing({screenRes / 2.0f, screenRes / 2.0f}, screenRes / 2.0f - LINE_THICK, screenRes / 2.0f, 0.0f, 360.0f, 64, DisplayColor());
 
 	DrawCornerAccents();
