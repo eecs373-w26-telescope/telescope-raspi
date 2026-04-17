@@ -252,7 +252,7 @@ static void DrawCornerAccents() {
 void DrawHud() {
 	UpdateMockData();
 
-	DrawCircleLines(screenRes / 2, screenRes / 2, screenRes / 2.0f, displayColor);
+	DrawRing({screenRes / 2.0f, screenRes / 2.0f}, screenRes / 2.0f - LINE_THICK, screenRes / 2.0f, 0.0f, 360.0f, 64, displayColor);
 
 	DrawCornerAccents();
 	DrawTopLeft();
