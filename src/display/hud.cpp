@@ -100,13 +100,12 @@ static void DrawTopLeft() {
 		time_mode_received = g_shared_state.time_mode_received;
 	}
 	const char* mode_label = "?";
-	Color mode_color = DimColor();
 	if (time_mode_received) {
-		if (time_mode == TIME_MODE_SATELLITE)      { mode_label = "S"; mode_color = displayColor; }
-		else if (time_mode == TIME_MODE_RASPI)     { mode_label = "R"; mode_color = displayColor; }
-		else                                       { mode_label = "C"; mode_color = DimColor(); }
+		if (time_mode == TIME_MODE_SATELLITE)      mode_label = "S";
+		else if (time_mode == TIME_MODE_RASPI)     mode_label = "R";
+		else                                       mode_label = "C";
 	}
-	MonoText(mode_label, x, y + FONT_XL + 4.0f + FONT_S + 4.0f, FONT_XL, mode_color);
+	MonoText(mode_label, x, y + FONT_XL + 4.0f + FONT_S + 4.0f, FONT_XL, displayColor);
 }
 
 // Top-right: target direction arrow + distance to target, or idle dot when no target
