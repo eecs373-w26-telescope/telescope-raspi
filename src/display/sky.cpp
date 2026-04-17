@@ -17,7 +17,7 @@ void DrawSky() {
 	// TODO: replace with actual sky rendering (star field, etc.)
 	Rectangle src = {0, 0, (float)screenRes, -(float)screenRes};
 	Rectangle dst = {0, 0, (float)screenRes, (float)screenRes};
-	DrawRectangle(0, 0, screenRes, screenRes, {10, 10, 40, 255});
+	DrawRectangle(0, 0, screenRes, screenRes, BLACK);
 
 	BeginBlendMode(BLEND_MULTIPLIED);
 	DrawTexturePro(circleMask.texture, src, dst, {0, 0}, 0, WHITE);
