@@ -18,7 +18,7 @@ static void signalHandler(int) {
 	shouldQuit.store(true);
 }
 
-int main() {
+int main(int argc, char* argv[]) {
 	std::signal(SIGINT, signalHandler);
 	std::signal(SIGTERM, signalHandler);
 	std::signal(SIGTSTP, signalHandler);
@@ -29,7 +29,8 @@ int main() {
 	monoFont = LoadFontEx("resources/JetBrainsMono-Regular.ttf", 96, nullptr, 0);
 	SetTextureFilter(monoFont.texture, TEXTURE_FILTER_POINT);
 
-	StartSerialReader("/dev/ttyS0");
+	const char* serial_device = (argc > 1) ? argv[1] : "/dev/ttyS0";
+	StartSerialReader(serial_device);
 	StartTimeSender();
 
 	InitDisplay();

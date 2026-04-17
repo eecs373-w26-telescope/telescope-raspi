@@ -5,6 +5,7 @@
 #include "raylib.h"
 #include <cmath>
 #include <cstdio>
+#include <ctime>
 #include <mutex>
 
 // ---- Mock target data (replace with real search state) ----
@@ -25,7 +26,7 @@ static void UpdateMockData() {
 
 static constexpr float PAD        = 3.0f;
 static constexpr float PING_FLASH = 0.5f;
-static constexpr float FONT_S     = 40.0f;
+static constexpr float FONT_S     = 30.0f;
 static constexpr float FONT_L     = 44.0f;
 static constexpr float FONT_XL    = 50.0f;
 static constexpr float SPACING    = 0.0f;
@@ -69,7 +70,7 @@ void InitHud() {
 	last_debug_count = 0;
 }
 
-// Top-left: telescope state (INIT, IDLE, SEARCH, FOUND)
+// Top-left: telescope state (INIT, IDLE, SEARCH, FOUND) + UTC clock
 static void DrawTopLeft() {
 	const char* state_str = nullptr;
 	switch (GetTelescopeState()) {
@@ -79,7 +80,17 @@ static void DrawTopLeft() {
 	case TelescopeState::FOUND:  state_str = "FOUND";  break;
 	}
 
-	MonoText(state_str, PAD + 14.0f, PAD + 14.0f, FONT_XL, displayColor);
+	float x = PAD + 14.0f;
+	float y = PAD + 14.0f;
+	MonoText(state_str, x, y, FONT_XL, displayColor);
+
+	time_t now = time(nullptr);
+	struct tm utc{};
+	gmtime_r(&now, &utc);
+	char clock_buf[12];
+	snprintf(clock_buf, sizeof(clock_buf), "%02d:%02d:%02d",
+		utc.tm_hour, utc.tm_min, utc.tm_sec);
+	MonoText(clock_buf, x, y + FONT_XL + 4.0f, FONT_S, displayColor);
 }
 
 // Top-right: target direction arrow + distance to target, or idle dot when no target

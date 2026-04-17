@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <termios.h>
+#include <cstdio>
 
 static std::atomic<bool> running{false};
 static std::thread reader_thread;
@@ -54,6 +55,9 @@ static void reader_loop() {
 			std::lock_guard<std::mutex> lock(g_shared_state.mtx);
 			g_shared_state.crc_error_count = decoder.crc_errors();
 			g_shared_state.sync_loss_count = decoder.sync_losses();
+
+			fprintf(stderr, "[serial] rx %zd bytes  crc_err=%u sync_loss=%u\n",
+				n, decoder.crc_errors(), decoder.sync_losses());
 		}
 	}
 }
@@ -90,14 +94,16 @@ static bool configure_port(int fd) {
 
 void StartSerialReader(const char* device) {
 	serial_fd = open(device, O_RDWR | O_NOCTTY);
-	if (serial_fd < 0) return;
-
-	if (!configure_port(serial_fd)) {
-		close(serial_fd);
-		serial_fd = -1;
+	if (serial_fd < 0) {
+		fprintf(stderr, "[serial] failed to open %s\n", device);
 		return;
 	}
 
+	if (!configure_port(serial_fd)) {
+		fprintf(stderr, "[serial] configure_port failed for %s, continuing anyway\n", device);
+	}
+
+	fprintf(stderr, "[serial] opened %s\n", device);
 	running.store(true);
 	reader_thread = std::thread(reader_loop);
 }

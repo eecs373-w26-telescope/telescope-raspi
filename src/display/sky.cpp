@@ -23,6 +23,17 @@ void DrawSky() {
 	BeginBlendMode(BLEND_MULTIPLIED);
 	DrawTexturePro(circleMask.texture, src, dst, {0, 0}, 0, WHITE);
 	EndBlendMode();
+
+	// Test DSOs at various positions to validate label placement
+	DrawDSO( 0.0f,   0.0f,  1);   // center
+	DrawDSO( 0.85f,  0.0f,  31);  // right edge
+	DrawDSO(-0.85f,  0.0f,  42);  // left edge
+	DrawDSO( 0.0f,  -0.85f, 45);  // top
+	DrawDSO( 0.0f,   0.85f, 57);  // bottom
+	DrawDSO( 0.6f,   0.6f,  81);  // bottom-right
+	DrawDSO(-0.6f,   0.6f,  101); // bottom-left
+	DrawDSO( 0.6f,  -0.6f,  13);  // top-right
+	DrawDSO(-0.6f,  -0.6f,  97);  // top-left
 }
 
 void CleanupSky() {
@@ -40,5 +51,7 @@ void DrawDSO(float x, float y, uint16_t catalog_number) {
 
 	char label[8];
 	snprintf(label, sizeof(label), "%u", catalog_number);
-	DrawTextEx(monoFont, label, {sx + 6.0f, sy - 8.0f}, 20.0f, 0.0f, DimColor());
+	float label_w = MeasureTextEx(monoFont, label, 32.0f, 0.0f).x;
+	float label_x = (x > 0.0f) ? sx - 14.0f - label_w : sx + 14.0f;
+	DrawTextEx(monoFont, label, {label_x, sy - 16.0f}, 32.0f, 0.0f, displayColor);
 }
