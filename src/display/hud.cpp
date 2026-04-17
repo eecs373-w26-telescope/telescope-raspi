@@ -88,11 +88,10 @@ static void DrawTopLeft() {
 	}
 }
 
-// Top-right: target name + direction arrow + distance, or idle indicator when no target
+// Top-right: active target name, or idle indicator when no target
 static void DrawTopRight() {
 	bool has_target;
 	char name[17]{};
-	float dx, dy, distance_deg;
 	{
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
 		has_target = g_shared_state.dso_target_received &&
@@ -101,9 +100,6 @@ static void DrawTopRight() {
 			std::memcpy(name, g_shared_state.dso_target.name, 16);
 			name[16] = '\0';
 		}
-		dx           = g_shared_state.search_guidance.dx_e4 / 10000.0f;
-		dy           = g_shared_state.search_guidance.dy_e4 / 10000.0f;
-		distance_deg = g_shared_state.search_guidance.distance_e2 / 100.0f;
 	}
 
 	float s = static_cast<float>(screenRes);
@@ -117,23 +113,8 @@ static void DrawTopRight() {
 		return;
 	}
 
-	float arrow_cx = s - PAD - 50.0f;
-	float arrow_cy = PAD + 55.0f;
-	constexpr float half_len = 22.0f;
-
-	if (dx * dx + dy * dy > 1e-6f) {
-		Vector2 arrow_start = {arrow_cx - half_len * dx, arrow_cy - half_len * dy};
-		Vector2 arrow_end   = {arrow_cx + half_len * dx, arrow_cy + half_len * dy};
-		DrawArrow(arrow_start, arrow_end, 3.0f, 12.0f, DisplayColor());
-	}
-
-	char dist_buf[16];
-	snprintf(dist_buf, sizeof(dist_buf), "%.1f", distance_deg);
-	float dist_tw = MonoWidth(dist_buf, FONT_L);
-	MonoText(dist_buf, arrow_cx - dist_tw / 2.0f, arrow_cy + half_len + 4.0f, FONT_L, DisplayColor());
-
-	float name_tw = MonoWidth(name, FONT_S);
-	MonoText(name, arrow_cx - name_tw / 2.0f, PAD + 8.0f, FONT_S, DisplayColor());
+	float tw = MonoWidth(name, FONT_XL);
+	MonoText(name, s - PAD - 8.0f - tw, PAD + 8.0f, FONT_XL, DisplayColor());
 }
 
 // Bottom-left: encoder yaw/pitch + compass heading + calibration indicators
