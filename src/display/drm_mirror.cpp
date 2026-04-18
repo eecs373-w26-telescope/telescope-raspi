@@ -1,23 +1,24 @@
 #include "drm_mirror.h"
 
-#ifdef HAVE_LIBDRM
-
-#include <xf86drm.h>
-#include <xf86drmMode.h>
-#include <dirent.h>
-#include <fcntl.h>
-#include <unistd.h>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <thread>
-#include <atomic>
+
+#ifdef HAVE_LIBDRM
+
+#include <dirent.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <xf86drm.h>
+#include <xf86drmMode.h>
 
 static std::atomic<bool> g_running{false};
 static std::thread g_thread;
 
-// Find the DRM master fd that Raylib already opened.
-// Opening a fresh fd lacks master, making all modesetting ioctls fail with EACCES.
+// Reuse Raylib's DRM master fd rather than opening a fresh one.
+// A fresh open of /dev/dri/card0 is never DRM master, so modesetting ioctls fail with EACCES.
 static int FindDRMMasterFd() {
     DIR* dir = opendir("/proc/self/fd");
     if (!dir) return -1;
@@ -48,9 +49,14 @@ static void MirrorLoop() {
         fprintf(stderr, "drm_mirror: no DRM master fd found\n");
         return;
     }
+    fprintf(stderr, "drm_mirror: using fd %d\n", fd);
 
     drmModeResPtr res = drmModeGetResources(fd);
-    if (!res) return;
+    if (!res) {
+        fprintf(stderr, "drm_mirror: drmModeGetResources failed\n");
+        return;
+    }
+    fprintf(stderr, "drm_mirror: %d CRTCs, %d connectors\n", res->count_crtcs, res->count_connectors);
 
     // Find the active primary CRTC set up by Raylib
     uint32_t primary_crtc_id = 0;
@@ -63,6 +69,8 @@ static void MirrorLoop() {
             primary_crtc_id = res->crtcs[i];
             primary_mode = c->mode;
             last_fb = c->buffer_id;
+            fprintf(stderr, "drm_mirror: primary CRTC id=%u fb=%u mode=%dx%d\n",
+                    primary_crtc_id, last_fb, primary_mode.hdisplay, primary_mode.vdisplay);
             drmModeFreeCrtc(c);
             break;
         }
@@ -79,12 +87,16 @@ static void MirrorLoop() {
     uint32_t secondary_conn_id = 0;
     uint32_t secondary_crtc_id = 0;
     drmModeModeInfo secondary_mode = {};
-    bool mode_matches = false;
 
     for (int i = 0; i < res->count_connectors && !secondary_conn_id; i++) {
         drmModeConnectorPtr conn = drmModeGetConnector(fd, res->connectors[i]);
-        if (!conn || conn->connection != DRM_MODE_CONNECTED || !conn->count_modes) {
-            if (conn) drmModeFreeConnector(conn);
+        if (!conn) continue;
+
+        fprintf(stderr, "drm_mirror: connector id=%u status=%d modes=%d\n",
+                res->connectors[i], conn->connection, conn->count_modes);
+
+        if (conn->connection != DRM_MODE_CONNECTED || !conn->count_modes) {
+            drmModeFreeConnector(conn);
             continue;
         }
 
@@ -96,17 +108,26 @@ static void MirrorLoop() {
                 drmModeFreeEncoder(enc);
             }
         }
-        if (is_primary) { drmModeFreeConnector(conn); continue; }
+        if (is_primary) {
+            fprintf(stderr, "drm_mirror: connector id=%u is primary, skipping\n", res->connectors[i]);
+            drmModeFreeConnector(conn);
+            continue;
+        }
 
+        // Prefer a mode matching the primary's resolution; fall back to first mode.
+        // Raylib's double-buffered FBOs are both the same size, so either mode entry works for page flips.
         for (int m = 0; m < conn->count_modes; m++) {
             if (conn->modes[m].hdisplay == primary_mode.hdisplay &&
                 conn->modes[m].vdisplay == primary_mode.vdisplay) {
                 secondary_mode = conn->modes[m];
-                mode_matches = true;
                 break;
             }
         }
-        if (!mode_matches) secondary_mode = conn->modes[0];
+        if (secondary_mode.hdisplay == 0) {
+            secondary_mode = conn->modes[0];
+            fprintf(stderr, "drm_mirror: no exact mode match, using %dx%d\n",
+                    secondary_mode.hdisplay, secondary_mode.vdisplay);
+        }
 
         for (int e = 0; e < conn->count_encoders && !secondary_crtc_id; e++) {
             drmModeEncoderPtr enc = drmModeGetEncoder(fd, conn->encoders[e]);
@@ -128,26 +149,23 @@ static void MirrorLoop() {
         fprintf(stderr, "drm_mirror: no secondary connector/CRTC available\n");
         return;
     }
+    fprintf(stderr, "drm_mirror: secondary CRTC id=%u connector id=%u mode=%dx%d\n",
+            secondary_crtc_id, secondary_conn_id, secondary_mode.hdisplay, secondary_mode.vdisplay);
 
-    if (drmModeSetCrtc(fd, secondary_crtc_id, last_fb, 0, 0,
-                       &secondary_conn_id, 1, &secondary_mode) != 0) {
-        fprintf(stderr, "drm_mirror: drmModeSetCrtc failed\n");
+    int ret = drmModeSetCrtc(fd, secondary_crtc_id, last_fb, 0, 0,
+                             &secondary_conn_id, 1, &secondary_mode);
+    if (ret != 0) {
+        fprintf(stderr, "drm_mirror: drmModeSetCrtc failed: %d (errno %d)\n", ret, errno);
         return;
     }
+    fprintf(stderr, "drm_mirror: secondary display initialized\n");
 
-    if (!mode_matches) {
-        // Secondary resolution differs from primary's framebuffer - static first frame only
-        fprintf(stderr, "drm_mirror: secondary mode resolution mismatch, static mirror only\n");
-        return;
-    }
-
-    // Poll primary CRTC for framebuffer swaps and mirror to secondary via page-flip
     while (g_running) {
         drmModeCrtcPtr curr = drmModeGetCrtc(fd, primary_crtc_id);
         if (curr) {
             if (curr->buffer_id && curr->buffer_id != last_fb) {
                 last_fb = curr->buffer_id;
-                // EBUSY (previous flip still pending) is safe to ignore
+                // EBUSY means previous flip still pending - safe to ignore
                 drmModePageFlip(fd, secondary_crtc_id, last_fb, 0, nullptr);
             }
             drmModeFreeCrtc(curr);
