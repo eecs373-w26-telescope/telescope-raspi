@@ -50,11 +50,11 @@ void DrawDSO(float x, float y, uint16_t catalog_number) {
 	float sx = half + x * half;
 	float sy = half + y * half;
 
-	DrawCircleV({sx, sy}, 3.0f, DisplayColor());
+	DrawCircleV({sx, sy}, 4.0f, DisplayColor());
 
 	char label[8];
 	snprintf(label, sizeof(label), "M%u", catalog_number);
-	float label_w = MeasureTextEx(monoFont, label, 32.0f, 0.0f).x;
+	float label_w = MeasureTextEx(monoFont, label, 40.0f, 0.0f).x;
 	float label_x = (x > 0.0f) ? sx - 14.0f - label_w : sx + 14.0f;
-	DrawTextEx(monoFont, label, {label_x, sy - 16.0f}, 32.0f, 0.0f, DisplayColor());
+	DrawTextEx(monoFont, label, {label_x, sy - 16.0f}, 40.0f, 0.0f, DisplayColor());
 }
