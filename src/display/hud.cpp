@@ -161,8 +161,8 @@ static void DrawBottomLeft() {
 		snprintf(pit_buf, sizeof(pit_buf), "P ---.-");
 	}
 	Color enc_color = enc_received ? DisplayColor() : DimColor();
-	MonoText(a_buf, x, a_y, FONT_S, DisplayColor());
-	MonoText(m_buf, x, m_y, FONT_S, DisplayColor());
+	MonoText(a_buf, x, a_y, FONT_S, (imu_received && accel_cal == 3) ? DisplayColor() : DimColor());
+	MonoText(m_buf, x, m_y, FONT_S, (imu_received && mag_cal   == 3) ? DisplayColor() : DimColor());
 	MonoText(yaw_buf, x, yaw_y, FONT_S, enc_color);
 	MonoText(pit_buf, x, pit_y, FONT_S, enc_color);
 
@@ -218,7 +218,7 @@ static void DrawBottomRight() {
 	MonoText(dbg_label, dbg_text_x, dbg_row_y, FONT_S, dbg_color);
 }
 
-// Center: search guidance arrow + distance to target
+// Center: chevron on circle edge pointing toward target + distance inside
 static void DrawCenter() {
 	bool has_target;
 	float dx, dy, distance_deg;
@@ -235,20 +235,40 @@ static void DrawCenter() {
 
 	float cx = screenRes / 2.0f;
 	float cy = screenRes / 2.0f;
-	constexpr float ARROW_HALF = 50.0f;
-
-	if (dx * dx + dy * dy < 1e-6f) {
-		DrawCircleV({cx, cy}, 8.0f, DisplayColor());
-	} else {
-		Vector2 arrow_start = {cx - ARROW_HALF * dx, cy - ARROW_HALF * dy};
-		Vector2 arrow_end   = {cx + ARROW_HALF * dx, cy + ARROW_HALF * dy};
-		DrawArrow(arrow_start, arrow_end, 3.0f, 14.0f, DisplayColor());
-	}
+	float R  = screenRes / 2.0f;
 
 	char dist_buf[16];
 	snprintf(dist_buf, sizeof(dist_buf), "%.1f", distance_deg);
 	float tw = MonoWidth(dist_buf, FONT_L);
-	MonoText(dist_buf, cx - tw / 2.0f, cy + ARROW_HALF + 6.0f, FONT_L, DisplayColor());
+
+	if (dx * dx + dy * dy < 1e-6f) {
+		DrawCircleV({cx, cy}, 8.0f, DisplayColor());
+		MonoText(dist_buf, cx - tw / 2.0f, cy + 16.0f, FONT_L, DisplayColor());
+		return;
+	}
+
+	constexpr float ARM_LEN        = 22.0f;
+	constexpr float HALF_ANGLE     = 0.55f; // radians (~31 deg per arm)
+	constexpr float THICKNESS      = 3.0f;
+	constexpr float TIP_INSET      = 10.0f;
+	constexpr float TEXT_INSET     = 12.0f;
+
+	float angle = atan2f(dy, dx);
+	float tip_r = R - TIP_INSET;
+	Vector2 tip = {cx + tip_r * cosf(angle), cy + tip_r * sinf(angle)};
+
+	float a1 = angle + PI - HALF_ANGLE;
+	float a2 = angle + PI + HALF_ANGLE;
+	Vector2 arm1 = {tip.x + ARM_LEN * cosf(a1), tip.y + ARM_LEN * sinf(a1)};
+	Vector2 arm2 = {tip.x + ARM_LEN * cosf(a2), tip.y + ARM_LEN * sinf(a2)};
+	DrawLineEx(arm1, tip,  THICKNESS, DisplayColor());
+	DrawLineEx(tip,  arm2, THICKNESS, DisplayColor());
+
+	float text_r = tip_r - ARM_LEN - TEXT_INSET;
+	MonoText(dist_buf,
+	         cx + text_r * cosf(angle) - tw / 2.0f,
+	         cy + text_r * sinf(angle) - FONT_L / 2.0f,
+	         FONT_L, DisplayColor());
 }
 
 // Decorative corner bracket accents
