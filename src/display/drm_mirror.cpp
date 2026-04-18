@@ -4,24 +4,52 @@
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <cstdio>
+#include <cstring>
 #include <thread>
 #include <atomic>
 
 static std::atomic<bool> g_running{false};
 static std::thread g_thread;
 
+// Find the DRM master fd that Raylib already opened.
+// Opening a fresh fd lacks master, making all modesetting ioctls fail with EACCES.
+static int FindDRMMasterFd() {
+    DIR* dir = opendir("/proc/self/fd");
+    if (!dir) return -1;
+
+    int result = -1;
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        int fd = atoi(entry->d_name);
+        if (fd <= 2) continue;
+
+        char proc_path[64], link_target[256];
+        snprintf(proc_path, sizeof(proc_path), "/proc/self/fd/%d", fd);
+        ssize_t len = readlink(proc_path, link_target, sizeof(link_target) - 1);
+        if (len <= 0) continue;
+        link_target[len] = '\0';
+
+        if (!strstr(link_target, "/dev/dri/card")) continue;
+        if (drmIsMaster(fd)) { result = fd; break; }
+    }
+
+    closedir(dir);
+    return result;
+}
+
 static void MirrorLoop() {
-    int fd = open("/dev/dri/card0", O_RDWR);
+    int fd = FindDRMMasterFd();
     if (fd < 0) {
-        fprintf(stderr, "drm_mirror: failed to open /dev/dri/card0\n");
+        fprintf(stderr, "drm_mirror: no DRM master fd found\n");
         return;
     }
 
     drmModeResPtr res = drmModeGetResources(fd);
-    if (!res) { close(fd); return; }
+    if (!res) return;
 
     // Find the active primary CRTC set up by Raylib
     uint32_t primary_crtc_id = 0;
@@ -43,7 +71,6 @@ static void MirrorLoop() {
     if (!primary_crtc_id) {
         fprintf(stderr, "drm_mirror: no active primary CRTC found\n");
         drmModeFreeResources(res);
-        close(fd);
         return;
     }
 
@@ -70,7 +97,6 @@ static void MirrorLoop() {
         }
         if (is_primary) { drmModeFreeConnector(conn); continue; }
 
-        // Prefer a mode matching the primary's resolution for framebuffer compatibility
         for (int m = 0; m < conn->count_modes; m++) {
             if (conn->modes[m].hdisplay == primary_mode.hdisplay &&
                 conn->modes[m].vdisplay == primary_mode.vdisplay) {
@@ -81,7 +107,6 @@ static void MirrorLoop() {
         }
         if (!mode_matches) secondary_mode = conn->modes[0];
 
-        // Find a CRTC this connector's encoder can drive (not primary_crtc_id)
         for (int e = 0; e < conn->count_encoders && !secondary_crtc_id; e++) {
             drmModeEncoderPtr enc = drmModeGetEncoder(fd, conn->encoders[e]);
             if (!enc) continue;
@@ -100,39 +125,34 @@ static void MirrorLoop() {
 
     if (!secondary_conn_id || !secondary_crtc_id) {
         fprintf(stderr, "drm_mirror: no secondary connector/CRTC available\n");
-        close(fd);
         return;
     }
 
     if (drmModeSetCrtc(fd, secondary_crtc_id, last_fb, 0, 0,
                        &secondary_conn_id, 1, &secondary_mode) != 0) {
-        fprintf(stderr, "drm_mirror: initial drmModeSetCrtc failed\n");
-        close(fd);
+        fprintf(stderr, "drm_mirror: drmModeSetCrtc failed\n");
         return;
     }
 
     if (!mode_matches) {
-        // Secondary mode resolution differs from primary's framebuffer - static first frame only
+        // Secondary resolution differs from primary's framebuffer - static first frame only
         fprintf(stderr, "drm_mirror: secondary mode resolution mismatch, static mirror only\n");
-        close(fd);
         return;
     }
 
-    // Poll primary CRTC for framebuffer swaps and mirror them to secondary
+    // Poll primary CRTC for framebuffer swaps and mirror to secondary via page-flip
     while (g_running) {
         drmModeCrtcPtr curr = drmModeGetCrtc(fd, primary_crtc_id);
         if (curr) {
             if (curr->buffer_id && curr->buffer_id != last_fb) {
                 last_fb = curr->buffer_id;
-                // EBUSY means a previous flip is still pending - safe to skip
+                // EBUSY (previous flip still pending) is safe to ignore
                 drmModePageFlip(fd, secondary_crtc_id, last_fb, 0, nullptr);
             }
             drmModeFreeCrtc(curr);
         }
         usleep(8000); // 125Hz poll, well above 60Hz display rate
     }
-
-    close(fd);
 }
 
 void StartDRMMirror() {
