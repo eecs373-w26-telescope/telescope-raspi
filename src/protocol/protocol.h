@@ -125,7 +125,7 @@ struct FovObjectsPayload {
 struct SearchGuidancePayload {
 	int16_t dx_e4;       // unit direction vector x * 10000 (toward target in FOV coords)
 	int16_t dy_e4;       // unit direction vector y * 10000
-	int16_t distance_e3; // angular distance to target in degrees * 1000
+	int16_t distance_e2; // angular distance to target in degrees * 100
 	uint8_t has_target;  // 1 = target selected, 0 = no active target
 };
 

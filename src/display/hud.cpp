@@ -226,7 +226,7 @@ static void DrawCenter() {
 		has_target   = g_shared_state.search_guidance.has_target != 0;
 		dx           = g_shared_state.search_guidance.dx_e4 / 10000.0f;
 		dy           = g_shared_state.search_guidance.dy_e4 / 10000.0f;
-		distance_deg = g_shared_state.search_guidance.distance_e3 / 1000.0f;
+		distance_deg = g_shared_state.search_guidance.distance_e2 / 100.0f;
 	}
 
 	if (!has_target) return;
@@ -236,7 +236,7 @@ static void DrawCenter() {
 	float R  = screenRes / 2.0f;
 
 	char dist_buf[16];
-	snprintf(dist_buf, sizeof(dist_buf), "%.3f", distance_deg);
+	snprintf(dist_buf, sizeof(dist_buf), "%05.1f", distance_deg);
 	float tw = MonoWidth(dist_buf, FONT_L);
 
 	if (dx * dx + dy * dy < 1e-6f) {
@@ -249,7 +249,7 @@ static void DrawCenter() {
 	constexpr float HALF_ANGLE     = 0.55f; // radians (~31 deg per arm)
 	constexpr float THICKNESS      = 4.0f;
 	constexpr float TIP_INSET      = 10.0f;
-	constexpr float TEXT_INSET     = 40.0f;
+	constexpr float TEXT_INSET     = 36.0f;
 
 	float angle = atan2f(dy, dx);
 	float tip_r = R - TIP_INSET;
