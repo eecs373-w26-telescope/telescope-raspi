@@ -14,6 +14,7 @@ static constexpr float PING_FLASH = 0.5f;
 static constexpr float FONT_S     = 30.0f;
 static constexpr float FONT_L     = 44.0f;
 static constexpr float FONT_XL    = 50.0f;
+static constexpr float FONT_XXL   = 72.0f;
 static constexpr float SPACING    = 0.0f;
 static constexpr float LINE_THICK = 1.5f;
 
@@ -113,8 +114,8 @@ static void DrawTopRight() {
 		return;
 	}
 
-	float tw = MonoWidth(name, FONT_XL);
-	MonoText(name, s - PAD - 8.0f - tw, PAD + 8.0f, FONT_XL, DisplayColor());
+	float tw = MonoWidth(name, FONT_XXL);
+	MonoText(name, s - PAD - 8.0f - tw, PAD + 8.0f, FONT_XXL, DisplayColor());
 }
 
 // Bottom-left: encoder yaw/pitch + compass heading + calibration indicators
@@ -147,11 +148,11 @@ static void DrawBottomLeft() {
 	float pitch_deg = (static_cast<float>(pitch_raw)  / 16383.0f) * 360.0f;
 	char yaw_buf[16], pit_buf[16];
 	if (enc_received) {
-		snprintf(yaw_buf, sizeof(yaw_buf), "YAW %05.1f", yaw_deg);
-		snprintf(pit_buf, sizeof(pit_buf), "PIT %05.1f", pitch_deg);
+		snprintf(yaw_buf, sizeof(yaw_buf), "Y %05.1f", yaw_deg);
+		snprintf(pit_buf, sizeof(pit_buf), "P %05.1f", pitch_deg);
 	} else {
-		snprintf(yaw_buf, sizeof(yaw_buf), "YAW ---.-");
-		snprintf(pit_buf, sizeof(pit_buf), "PIT ---.-");
+		snprintf(yaw_buf, sizeof(yaw_buf), "Y ---.-");
+		snprintf(pit_buf, sizeof(pit_buf), "P/ ---.-");
 	}
 	Color enc_color = enc_received ? DisplayColor() : DimColor();
 	MonoText(yaw_buf, x, yaw_y, FONT_S, enc_color);
