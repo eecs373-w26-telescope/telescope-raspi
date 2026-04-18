@@ -4,6 +4,7 @@
 #include "raylib.h"
 #include "globals.h"
 #include "display/display.h"
+#include "display/drm_mirror.h"
 #include "serial/serial_reader.h"
 #include "serial/time_sender.h"
 
@@ -25,6 +26,7 @@ int main(int argc, char* argv[]) {
 
 	SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
 	InitWindow(screenRes, screenRes, "EECS373 - Telescope");
+	StartDRMMirror();
 
 	monoFont = LoadFontEx("resources/JetBrainsMono-Regular.ttf", 96, nullptr, 0);
 	SetTextureFilter(monoFont.texture, TEXTURE_FILTER_POINT);
@@ -41,6 +43,7 @@ int main(int argc, char* argv[]) {
 
 	StopTimeSender();
 	StopSerialReader();
+	StopDRMMirror();
 	CleanupDisplay();
 	UnloadFont(monoFont);
 	CloseWindow();

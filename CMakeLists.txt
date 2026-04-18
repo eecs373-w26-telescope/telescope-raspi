@@ -28,6 +28,16 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 target_link_libraries(${PROJECT_NAME} PRIVATE raylib)
 
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(DRM QUIET libdrm)
+    if(DRM_FOUND)
+        target_include_directories(${PROJECT_NAME} PRIVATE ${DRM_INCLUDE_DIRS})
+        target_link_libraries(${PROJECT_NAME} PRIVATE ${DRM_LIBRARIES})
+        target_compile_definitions(${PROJECT_NAME} PRIVATE HAVE_LIBDRM)
+    endif()
+endif()
+
 # Flip display for physical mirror on release builds targeting raspi
 # Override with -DDISPLAY_FLIP_OVERRIDE=0 or -DDISPLAY_FLIP_OVERRIDE=1
 if(DEFINED DISPLAY_FLIP_OVERRIDE)
