@@ -140,9 +140,15 @@ static void DrawBottomLeft() {
 	float s = static_cast<float>(screenRes);
 	float x = PAD + 8.0f;
 
+	char a_buf[4], m_buf[4];
+	snprintf(a_buf, sizeof(a_buf), "A%c", imu_received ? ('0' + accel_cal) : '-');
+	snprintf(m_buf, sizeof(m_buf), "M%c", imu_received ? ('0' + mag_cal)   : '-');
+
 	float hdg_y = s - PAD - 8.0f - FONT_L;
 	float pit_y = hdg_y - FONT_S - 1.0f;
 	float yaw_y = pit_y - FONT_S - 1.0f;
+	float m_y   = yaw_y - FONT_S - 1.0f;
+	float a_y   = m_y   - FONT_S - 1.0f;
 
 	float yaw_deg   = (static_cast<float>(yaw_raw)   / 16383.0f) * 360.0f;
 	float pitch_deg = (static_cast<float>(pitch_raw)  / 16383.0f) * 360.0f;
@@ -152,9 +158,11 @@ static void DrawBottomLeft() {
 		snprintf(pit_buf, sizeof(pit_buf), "P %05.1f", pitch_deg);
 	} else {
 		snprintf(yaw_buf, sizeof(yaw_buf), "Y ---.-");
-		snprintf(pit_buf, sizeof(pit_buf), "P/ ---.-");
+		snprintf(pit_buf, sizeof(pit_buf), "P ---.-");
 	}
 	Color enc_color = enc_received ? DisplayColor() : DimColor();
+	MonoText(a_buf, x, a_y, FONT_S, DisplayColor());
+	MonoText(m_buf, x, m_y, FONT_S, DisplayColor());
 	MonoText(yaw_buf, x, yaw_y, FONT_S, enc_color);
 	MonoText(pit_buf, x, pit_y, FONT_S, enc_color);
 
@@ -165,19 +173,6 @@ static void DrawBottomLeft() {
 		snprintf(hdg_buf, sizeof(hdg_buf), "HDG ---.-");
 	}
 	MonoText(hdg_buf, x, hdg_y, FONT_L, imu_received ? DisplayColor() : DimColor());
-
-	float hdg_w = MonoWidth(hdg_buf, FONT_L);
-	float cal_x = x + hdg_w + 12.0f;
-	float cal_y = hdg_y + (FONT_L - FONT_S) / 2.0f;
-
-	Color accel_color = (imu_received && accel_cal == 3) ? DisplayColor() : DimColor();
-	Color mag_color   = (imu_received && mag_cal   == 3) ? DisplayColor() : DimColor();
-	char a_buf[4], m_buf[4];
-	snprintf(a_buf, sizeof(a_buf), "A%c", imu_received ? ('0' + accel_cal) : '-');
-	snprintf(m_buf, sizeof(m_buf), "M%c", imu_received ? ('0' + mag_cal)   : '-');
-	MonoText(a_buf, cal_x, cal_y, FONT_S, accel_color);
-	float a_w = MonoWidth(a_buf, FONT_S);
-	MonoText(m_buf, cal_x + a_w + 8.0f, cal_y, FONT_S, mag_color);
 }
 
 // Bottom-right: GPS fix indicator + debug connection indicator
