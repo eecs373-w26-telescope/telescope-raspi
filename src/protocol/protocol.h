@@ -36,6 +36,7 @@ enum DsoStatus : uint8_t {
 	DSO_OK        = 0,
 	DSO_NOT_FOUND = 1,
 	DSO_SD_ERROR  = 2,
+	DSO_NO_TARGET = 3,
 };
 
 #pragma pack(push, 1)

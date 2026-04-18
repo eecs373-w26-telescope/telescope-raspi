@@ -25,7 +25,7 @@ void SharedState::updateStateSync(const uint8_t* payload) {
 
 void SharedState::updateDsoTarget(const uint8_t* payload) {
 	std::memcpy(&dso_target, payload, sizeof(DsoTargetPayload));
-	dso_target_received = true;
+	dso_target_received = (dso_target.status != DSO_NO_TARGET);
 }
 
 void SharedState::updateDebug(const uint8_t* payload) {
