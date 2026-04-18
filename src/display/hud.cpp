@@ -106,7 +106,7 @@ static void DrawTopRight() {
 	float s = static_cast<float>(screenRes);
 
 	if (!has_target) {
-		const char* label = "NO TGT";
+		const char* label = "N/A";
 		float tw = MonoWidth(label, FONT_XXL);
 		MonoText(label, s - PAD - 8.0f - tw, PAD + 8.0f, FONT_XXL, DisplayColor());
 		return;
