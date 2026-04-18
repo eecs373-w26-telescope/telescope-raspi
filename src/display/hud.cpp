@@ -107,10 +107,8 @@ static void DrawTopRight() {
 
 	if (!has_target) {
 		const char* label = "NO TGT";
-		float tw = MonoWidth(label, FONT_S);
-		float tx = s - PAD - 14.0f - tw;
-		DrawCircleV({tx - 16.0f, PAD + 14.0f + FONT_S / 2.0f}, 5.0f, DimColor());
-		MonoText(label, tx, PAD + 14.0f, FONT_S, DimColor());
+		float tw = MonoWidth(label, FONT_XXL);
+		MonoText(label, s - PAD - 8.0f - tw, PAD + 8.0f, FONT_XXL, DisplayColor());
 		return;
 	}
 
