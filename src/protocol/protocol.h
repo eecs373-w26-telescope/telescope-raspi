@@ -112,7 +112,7 @@ struct TimeModePayload {
 static constexpr uint8_t FOV_OBJECTS_MAX = 21;
 
 struct FovObjectEntry {
-	uint16_t messier_id;
+	uint16_t catalog_id;
 	int16_t  x_e4;
 	int16_t  y_e4;
 };

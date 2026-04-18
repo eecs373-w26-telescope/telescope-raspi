@@ -40,8 +40,8 @@ void DrawSky() {
 			for (uint8_t i = 0; i < fov.count; ++i) {
 				float x = fov.objects[i].x_e4 / 10000.0f;
 				float y = fov.objects[i].y_e4 / 10000.0f;
-				bool is_target = has_active_target && (fov.objects[i].messier_id == target_id);
-				DrawDSO(x, y, fov.objects[i].messier_id, is_target);
+				bool is_target = has_active_target && (fov.objects[i].catalog_id == target_id);
+				DrawDSO(x, y, fov.objects[i].catalog_id, is_target);
 			}
 		}
 	}
@@ -51,7 +51,7 @@ void CleanupSky() {
 	UnloadRenderTexture(circleMask);
 }
 
-void DrawDSO(float x, float y, uint16_t catalog_number, bool is_target) {
+void DrawDSO(float x, float y, uint16_t catalog_id, bool is_target) {
 	if (x * x + y * y > 1.0f) return;
 
 	float half = screenRes / 2.0f;
@@ -62,8 +62,13 @@ void DrawDSO(float x, float y, uint16_t catalog_number, bool is_target) {
 	DrawCircleV({sx, sy}, dot_radius, DisplayColor());
 
 	float font_size = is_target ? 60.0f : 40.0f;
-	char label[8];
-	snprintf(label, sizeof(label), "M%u", catalog_number);
+	char label[12];
+	
+	if (catalog_id >= 10000) {
+		snprintf(label, sizeof(label), "NGC%u", catalog_id - 10000);
+	} else {
+		snprintf(label, sizeof(label), "M%u", catalog_id);
+	}
 	
 	float label_w = MeasureTextEx(monoFont, label, font_size, 0.0f).x;
 	float offset = is_target ? 20.0f : 14.0f;
