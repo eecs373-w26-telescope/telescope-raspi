@@ -1,4 +1,5 @@
 #include "protocol/shared_state.h"
+#include "state_machine/state_machine.h"
 #include <cstring>
 
 SharedState g_shared_state;
@@ -21,6 +22,10 @@ void SharedState::updateImu(const uint8_t* payload) {
 void SharedState::updateStateSync(const uint8_t* payload) {
 	std::memcpy(&state_sync, payload, sizeof(StateSyncPayload));
 	state_sync_received = true;
+	auto s = static_cast<TelescopeState>(state_sync.state);
+	if (s == TelescopeState::IDLE || s == TelescopeState::INIT) {
+		dso_target_received = false;
+	}
 }
 
 void SharedState::updateDsoTarget(const uint8_t* payload) {
