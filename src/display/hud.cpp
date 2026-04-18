@@ -247,11 +247,11 @@ static void DrawCenter() {
 		return;
 	}
 
-	constexpr float ARM_LEN        = 22.0f;
+	constexpr float ARM_LEN        = 30.0f;
 	constexpr float HALF_ANGLE     = 0.55f; // radians (~31 deg per arm)
-	constexpr float THICKNESS      = 3.0f;
+	constexpr float THICKNESS      = 4.0f;
 	constexpr float TIP_INSET      = 10.0f;
-	constexpr float TEXT_INSET     = 12.0f;
+	constexpr float TEXT_INSET     = 24.0f;
 
 	float angle = atan2f(dy, dx);
 	float tip_r = R - TIP_INSET;
