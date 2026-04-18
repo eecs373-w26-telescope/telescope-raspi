@@ -30,9 +30,11 @@ void DrawSky() {
 		std::lock_guard<std::mutex> lock(g_shared_state.mtx);
 		
 		uint16_t target_id = 0;
+		uint8_t target_mode = 0;
 		bool has_active_target = g_shared_state.dso_target_received && (g_shared_state.dso_target.status == DSO_OK);
 		if (has_active_target) {
 			target_id = g_shared_state.dso_target.catalog_number;
+			target_mode = g_shared_state.dso_target.catalog_mode;
 		}
 
 		if (g_shared_state.fov_objects_received) {
@@ -40,8 +42,10 @@ void DrawSky() {
 			for (uint8_t i = 0; i < fov.count; ++i) {
 				float x = fov.objects[i].x_e4 / 10000.0f;
 				float y = fov.objects[i].y_e4 / 10000.0f;
-				bool is_target = has_active_target && (fov.objects[i].catalog_id == target_id);
-				DrawDSO(x, y, fov.objects[i].catalog_id, is_target);
+				bool is_target = has_active_target && 
+				                 (fov.objects[i].catalog_id == target_id) &&
+				                 (fov.objects[i].catalog_mode == target_mode);
+				DrawDSO(x, y, fov.objects[i].catalog_id, fov.objects[i].catalog_mode, is_target);
 			}
 		}
 	}
@@ -51,7 +55,7 @@ void CleanupSky() {
 	UnloadRenderTexture(circleMask);
 }
 
-void DrawDSO(float x, float y, uint16_t catalog_id, bool is_target) {
+void DrawDSO(float x, float y, uint16_t catalog_id, uint8_t catalog_mode, bool is_target) {
 	if (x * x + y * y > 1.0f) return;
 
 	float half = screenRes / 2.0f;
@@ -64,11 +68,8 @@ void DrawDSO(float x, float y, uint16_t catalog_id, bool is_target) {
 	float font_size = is_target ? 60.0f : 40.0f;
 	char label[12];
 	
-	if (catalog_id >= 10000) {
-		snprintf(label, sizeof(label), "NGC%u", catalog_id - 10000);
-	} else {
-		snprintf(label, sizeof(label), "M%u", catalog_id);
-	}
+	const char* prefix = (catalog_mode == 1) ? "N" : "M";
+	snprintf(label, sizeof(label), "%s%u", prefix, catalog_id);
 	
 	float label_w = MeasureTextEx(monoFont, label, font_size, 0.0f).x;
 	float offset = is_target ? 20.0f : 14.0f;

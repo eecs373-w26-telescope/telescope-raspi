@@ -78,6 +78,7 @@ struct StateSyncPayload {
 struct DsoTargetPayload {
 	uint8_t  status;
 	uint16_t catalog_number;
+        uint8_t  catalog_mode; // 0 = Messier, 1 = NGC
 	uint8_t  object_type;
 	int32_t  ra_mas;
 	int32_t  dec_mas;
@@ -113,6 +114,7 @@ static constexpr uint8_t FOV_OBJECTS_MAX = 21;
 
 struct FovObjectEntry {
 	uint16_t catalog_id;
+	uint8_t  catalog_mode; // 0 = Messier, 1 = NGC
 	int16_t  x_e4;
 	int16_t  y_e4;
 };
