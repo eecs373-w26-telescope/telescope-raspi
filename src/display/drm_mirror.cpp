@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <thread>
+#include <vector>
 
 #ifdef HAVE_LIBDRM
 
@@ -42,6 +43,12 @@ static int FindDRMMasterFd() {
     closedir(dir);
     return result;
 }
+
+struct SecondaryDisplay {
+    uint32_t connector_id;
+    uint32_t crtc_id;
+    drmModeModeInfo mode;
+};
 
 static void MirrorLoop() {
     int fd = FindDRMMasterFd();
@@ -83,12 +90,12 @@ static void MirrorLoop() {
         return;
     }
 
-    // Find a secondary connected connector not driving the primary CRTC
-    uint32_t secondary_conn_id = 0;
-    uint32_t secondary_crtc_id = 0;
-    drmModeModeInfo secondary_mode = {};
+    std::vector<SecondaryDisplay> secondary_displays;
+    std::vector<uint32_t> used_crtcs;
+    used_crtcs.push_back(primary_crtc_id);
 
-    for (int i = 0; i < res->count_connectors && !secondary_conn_id; i++) {
+    // Find all secondary connected connectors not driving the primary CRTC
+    for (int i = 0; i < res->count_connectors; i++) {
         drmModeConnectorPtr conn = drmModeGetConnector(fd, res->connectors[i]);
         if (!conn) continue;
 
@@ -114,59 +121,77 @@ static void MirrorLoop() {
             continue;
         }
 
+        drmModeModeInfo best_mode = {};
         // Prefer a mode matching the primary's resolution; fall back to first mode.
-        // Raylib's double-buffered FBOs are both the same size, so either mode entry works for page flips.
         for (int m = 0; m < conn->count_modes; m++) {
             if (conn->modes[m].hdisplay == primary_mode.hdisplay &&
                 conn->modes[m].vdisplay == primary_mode.vdisplay) {
-                secondary_mode = conn->modes[m];
+                best_mode = conn->modes[m];
                 break;
             }
         }
-        if (secondary_mode.hdisplay == 0) {
-            secondary_mode = conn->modes[0];
-            fprintf(stderr, "drm_mirror: no exact mode match, using %dx%d\n",
-                    secondary_mode.hdisplay, secondary_mode.vdisplay);
+        if (best_mode.hdisplay == 0) {
+            best_mode = conn->modes[0];
+            fprintf(stderr, "drm_mirror: no exact mode match for connector %u, using %dx%d\n",
+                    res->connectors[i], best_mode.hdisplay, best_mode.vdisplay);
         }
 
-        for (int e = 0; e < conn->count_encoders && !secondary_crtc_id; e++) {
+        uint32_t chosen_crtc_id = 0;
+        for (int e = 0; e < conn->count_encoders && !chosen_crtc_id; e++) {
             drmModeEncoderPtr enc = drmModeGetEncoder(fd, conn->encoders[e]);
             if (!enc) continue;
-            for (int c = 0; c < res->count_crtcs && !secondary_crtc_id; c++) {
-                if (res->crtcs[c] != primary_crtc_id && (enc->possible_crtcs & (1 << c)))
-                    secondary_crtc_id = res->crtcs[c];
+            for (int c = 0; c < res->count_crtcs && !chosen_crtc_id; c++) {
+                uint32_t candidate_crtc_id = res->crtcs[c];
+                bool already_used = false;
+                for (uint32_t used : used_crtcs) if (used == candidate_crtc_id) already_used = true;
+
+                if (!already_used && (enc->possible_crtcs & (1 << c))) {
+                    chosen_crtc_id = candidate_crtc_id;
+                }
             }
             drmModeFreeEncoder(enc);
         }
 
-        if (secondary_crtc_id) secondary_conn_id = res->connectors[i];
+        if (chosen_crtc_id) {
+            secondary_displays.push_back({res->connectors[i], chosen_crtc_id, best_mode});
+            used_crtcs.push_back(chosen_crtc_id);
+            fprintf(stderr, "drm_mirror: adding secondary display connector=%u crtc=%u mode=%dx%d\n",
+                    res->connectors[i], chosen_crtc_id, best_mode.hdisplay, best_mode.vdisplay);
+        } else {
+            fprintf(stderr, "drm_mirror: could not find suitable CRTC for connector %u\n", res->connectors[i]);
+        }
         drmModeFreeConnector(conn);
     }
 
     drmModeFreeResources(res);
 
-    if (!secondary_conn_id || !secondary_crtc_id) {
-        fprintf(stderr, "drm_mirror: no secondary connector/CRTC available\n");
+    if (secondary_displays.empty()) {
+        fprintf(stderr, "drm_mirror: no secondary displays found\n");
         return;
     }
-    fprintf(stderr, "drm_mirror: secondary CRTC id=%u connector id=%u mode=%dx%d\n",
-            secondary_crtc_id, secondary_conn_id, secondary_mode.hdisplay, secondary_mode.vdisplay);
 
-    int ret = drmModeSetCrtc(fd, secondary_crtc_id, last_fb, 0, 0,
-                             &secondary_conn_id, 1, &secondary_mode);
-    if (ret != 0) {
-        fprintf(stderr, "drm_mirror: drmModeSetCrtc failed: %d (errno %d)\n", ret, errno);
-        return;
+    // Initialize all secondary displays with the current framebuffer
+    for (auto it = secondary_displays.begin(); it != secondary_displays.end(); ) {
+        int ret = drmModeSetCrtc(fd, it->crtc_id, last_fb, 0, 0,
+                                 &it->connector_id, 1, &it->mode);
+        if (ret != 0) {
+            fprintf(stderr, "drm_mirror: drmModeSetCrtc failed for crtc %u: %d (errno %d)\n", it->crtc_id, ret, errno);
+            it = secondary_displays.erase(it);
+        } else {
+            fprintf(stderr, "drm_mirror: secondary crtc %u initialized\n", it->crtc_id);
+            ++it;
+        }
     }
-    fprintf(stderr, "drm_mirror: secondary display initialized\n");
 
     while (g_running) {
         drmModeCrtcPtr curr = drmModeGetCrtc(fd, primary_crtc_id);
         if (curr) {
             if (curr->buffer_id && curr->buffer_id != last_fb) {
                 last_fb = curr->buffer_id;
-                // EBUSY means previous flip still pending - safe to ignore
-                drmModePageFlip(fd, secondary_crtc_id, last_fb, 0, nullptr);
+                for (auto& disp : secondary_displays) {
+                    // EBUSY means previous flip still pending - safe to ignore
+                    drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr);
+                }
             }
             drmModeFreeCrtc(curr);
         }
