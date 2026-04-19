@@ -58,47 +58,25 @@ static uint32_t GetPropertyId(int fd, uint32_t object_id, uint32_t object_type, 
     return result;
 }
 
-static uint32_t FindPrimaryPlane(int fd, int crtc_index) {
-    drmModePlaneResPtr planes = drmModeGetPlaneResources(fd);
-    uint32_t result = 0;
-    if (!planes) return 0;
-    for (uint32_t i = 0; i < planes->count_planes && result == 0; i++) {
-        drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[i]);
-        if (plane) {
-            if (plane->possible_crtcs & (1 << crtc_index)) {
-                uint32_t type_id = GetPropertyId(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, "type");
-                drmModeObjectPropertiesPtr props = drmModeObjectGetProperties(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE);
-                if (props) {
-                    for (uint32_t j = 0; j < props->count_props; j++) {
-                        if (props->props[j] == type_id && props->prop_values[j] == 1) result = plane->plane_id;
-                    }
-                    drmModeFreeObjectProperties(props);
-                }
-            }
-            drmModeFreePlane(plane);
-        }
-    }
-    drmModeFreePlaneResources(planes);
-    return result;
-}
-
 struct SecondaryDisplay {
     uint32_t connector_id;
     uint32_t crtc_id;
     int crtc_index;
-    uint32_t plane_id;
+    uint32_t primary_plane_id;
     drmModeModeInfo mode;
 };
 
 static void MirrorLoop() {
     g_log = fopen("/tmp/drm_mirror.log", "w");
-    LOG("--- drm_mirror: session start ---\n");
+    LOG("--- drm_mirror: Plane-Scrubbing Session ---\n");
+    
     int fd = -1;
     for (int i = 0; i < 100 && fd < 0; i++) {
         fd = FindDRMMasterFd();
         if (fd < 0) usleep(100000);
     }
     if (fd < 0) return;
+    
     drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
     
     drmModeResPtr res = drmModeGetResources(fd);
@@ -113,6 +91,7 @@ static void MirrorLoop() {
             last_fb = c->buffer_id;
             drmModeFBPtr fb = drmModeGetFB(fd, last_fb);
             if (fb) { fb_w = fb->width; fb_h = fb->height; drmModeFreeFB(fb); }
+            LOG("drm_mirror: primary CRTC %u active (fb %u, %dx%d)\n", primary_crtc_id, last_fb, fb_w, fb_h);
             drmModeFreeCrtc(c);
             break;
         }
@@ -123,6 +102,8 @@ static void MirrorLoop() {
     std::vector<SecondaryDisplay> secondary_displays;
     std::vector<uint32_t> used_crtcs;
     used_crtcs.push_back(primary_crtc_id);
+
+    drmModePlaneResPtr planes = drmModeGetPlaneResources(fd);
 
     for (int i = 0; i < res->count_connectors; i++) {
         drmModeConnectorPtr conn = drmModeGetConnector(fd, res->connectors[i]);
@@ -149,7 +130,24 @@ static void MirrorLoop() {
                     drmModeFreeEncoder(enc);
                 }
                 if (chosen_crtc_id) {
-                    secondary_displays.push_back({res->connectors[i], chosen_crtc_id, chosen_index, FindPrimaryPlane(fd, chosen_index), conn->modes[0]});
+                    uint32_t primary_plane = 0;
+                    if (planes) {
+                        for (uint32_t p = 0; p < planes->count_planes; p++) {
+                            drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[p]);
+                            if (plane && (plane->possible_crtcs & (1 << chosen_index))) {
+                                uint32_t type_id = GetPropertyId(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, "type");
+                                drmModeObjectPropertiesPtr props = drmModeObjectGetProperties(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE);
+                                if (props) {
+                                    for (uint32_t j = 0; j < props->count_props; j++) {
+                                        if (props->props[j] == type_id && props->prop_values[j] == 1) primary_plane = plane->plane_id;
+                                    }
+                                    drmModeFreeObjectProperties(props);
+                                }
+                            }
+                            if (plane) drmModeFreePlane(plane);
+                        }
+                    }
+                    secondary_displays.push_back({res->connectors[i], chosen_crtc_id, chosen_index, primary_plane, conn->modes[0]});
                     used_crtcs.push_back(chosen_crtc_id);
                 }
             }
@@ -158,43 +156,49 @@ static void MirrorLoop() {
     }
     drmModeFreeResources(res);
 
-    for (auto& disp : secondary_displays) {
-        // Aggressively take over the CRTC multiple times to fight the kernel console
-        for (int retry = 0; retry < 3; retry++) {
-            drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
-            usleep(50000);
-        }
-        
-        if (disp.plane_id) {
-            drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0,
-                                  0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
-                                  0, 0, fb_w << 16, fb_h << 16);
-            
-            // Re-enable rotation
-            uint32_t prop_id = GetPropertyId(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
-            if (prop_id) {
-                uint32_t val = (!DISPLAY_FLIP) ? (1 << 2) : (1 << 0);
-                drmModeObjectSetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, prop_id, val);
-            }
-        }
-    }
-
-    LOG("drm_mirror: main loop started\n");
     while (g_running) {
         drmModeCrtcPtr curr = drmModeGetCrtc(fd, primary_crtc_id);
         if (curr) {
-            if (curr->buffer_id != 0 && curr->buffer_id != last_fb) {
+            if (curr->buffer_id != 0) {
                 last_fb = curr->buffer_id;
                 for (auto& disp : secondary_displays) {
-                    // Using SetCrtc instead of PageFlip is slower but much more "forceful"
-                    // it forces the kernel to reconsider the plane assignment.
+                    // 1. Force the CRTC mode
                     drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
+                    
+                    // 2. Scrub ALL planes for this CRTC except the primary one we want
+                    if (planes) {
+                        for (uint32_t p = 0; p < planes->count_planes; p++) {
+                            drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[p]);
+                            if (plane) {
+                                if (plane->possible_crtcs & (1 << disp.crtc_index)) {
+                                    if (plane->plane_id == disp.primary_plane_id) {
+                                        // Our primary plane: flip and scale
+                                        uint32_t rot_prop = GetPropertyId(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
+                                        if (rot_prop) {
+                                            uint32_t val = (!DISPLAY_FLIP) ? (1 << 2) : (1 << 0);
+                                            drmModeObjectSetProperty(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, rot_prop, val);
+                                        }
+                                        drmModeSetPlane(fd, plane->plane_id, disp.crtc_id, last_fb, 0,
+                                                        0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
+                                                        0, 0, fb_w << 16, fb_h << 16);
+                                    } else {
+                                        // Some other plane (overlay, cursor, etc): DISABLE IT
+                                        // This is what wipes the TTY and kernel messages
+                                        drmModeSetPlane(fd, plane->plane_id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                                    }
+                                }
+                                drmModeFreePlane(plane);
+                            }
+                        }
+                    }
                 }
             }
             drmModeFreeCrtc(curr);
         }
-        usleep(15000); // Slightly slower poll to be nicer to the driver
+        usleep(16666);
     }
+    
+    if (planes) drmModeFreePlaneResources(planes);
     if (g_log) fclose(g_log);
 }
 
