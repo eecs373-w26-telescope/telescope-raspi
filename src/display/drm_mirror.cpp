@@ -112,12 +112,7 @@ static void MirrorLoop() {
             primary_crtc_id = res->crtcs[i];
             last_fb = c->buffer_id;
             drmModeFBPtr fb = drmModeGetFB(fd, last_fb);
-            if (fb) {
-                fb_w = fb->width;
-                fb_h = fb->height;
-                drmModeFreeFB(fb);
-            }
-            LOG("drm_mirror: primary CRTC %u, fb %u (%dx%d)\n", primary_crtc_id, last_fb, fb_w, fb_h);
+            if (fb) { fb_w = fb->width; fb_h = fb->height; drmModeFreeFB(fb); }
             drmModeFreeCrtc(c);
             break;
         }
@@ -156,7 +151,6 @@ static void MirrorLoop() {
                 if (chosen_crtc_id) {
                     secondary_displays.push_back({res->connectors[i], chosen_crtc_id, chosen_index, FindPrimaryPlane(fd, chosen_index), conn->modes[0]});
                     used_crtcs.push_back(chosen_crtc_id);
-                    LOG("drm_mirror: added secondary CRTC %u (index %d), mode %dx%d\n", chosen_crtc_id, chosen_index, conn->modes[0].hdisplay, conn->modes[0].vdisplay);
                 }
             }
         }
@@ -165,43 +159,41 @@ static void MirrorLoop() {
     drmModeFreeResources(res);
 
     for (auto& disp : secondary_displays) {
-        // Try to clear the CRTC first
-        drmModeSetCrtc(fd, disp.crtc_id, 0, 0, 0, nullptr, 0, nullptr);
-        int ret = drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
-        LOG("drm_mirror: SetCrtc %u res %d\n", disp.crtc_id, ret);
+        // Aggressively take over the CRTC multiple times to fight the kernel console
+        for (int retry = 0; retry < 3; retry++) {
+            drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
+            usleep(50000);
+        }
         
         if (disp.plane_id) {
-            // Map full FB (fb_w x fb_h) to full screen (disp.mode.hdisplay x disp.mode.vdisplay)
-            ret = drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0,
+            drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0,
                                   0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
                                   0, 0, fb_w << 16, fb_h << 16);
-            LOG("drm_mirror: SetPlane %u scaling res %d\n", disp.plane_id, ret);
             
-            // Rotation - let's skip it for one run to see if we get a picture
-            /*
+            // Re-enable rotation
             uint32_t prop_id = GetPropertyId(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
             if (prop_id) {
                 uint32_t val = (!DISPLAY_FLIP) ? (1 << 2) : (1 << 0);
                 drmModeObjectSetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, prop_id, val);
             }
-            */
         }
     }
 
+    LOG("drm_mirror: main loop started\n");
     while (g_running) {
         drmModeCrtcPtr curr = drmModeGetCrtc(fd, primary_crtc_id);
         if (curr) {
             if (curr->buffer_id != 0 && curr->buffer_id != last_fb) {
                 last_fb = curr->buffer_id;
                 for (auto& disp : secondary_displays) {
-                    if (drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr) != 0 && errno != EBUSY) {
-                         drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
-                    }
+                    // Using SetCrtc instead of PageFlip is slower but much more "forceful"
+                    // it forces the kernel to reconsider the plane assignment.
+                    drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
                 }
             }
             drmModeFreeCrtc(curr);
         }
-        usleep(8000);
+        usleep(15000); // Slightly slower poll to be nicer to the driver
     }
     if (g_log) fclose(g_log);
 }
