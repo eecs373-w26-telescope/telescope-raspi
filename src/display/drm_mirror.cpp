@@ -90,6 +90,27 @@ static void MirrorLoop() {
         return;
     }
 
+    // Wait for a valid framebuffer if it's currently 0 (early startup)
+    int wait_retries = 50;
+    while (last_fb == 0 && wait_retries-- > 0) {
+        drmModeCrtcPtr c = drmModeGetCrtc(fd, primary_crtc_id);
+        if (c) {
+            if (c->buffer_id != 0) {
+                last_fb = c->buffer_id;
+                primary_mode = c->mode;
+            }
+            drmModeFreeCrtc(c);
+        }
+        if (last_fb == 0) usleep(20000);
+    }
+
+    if (last_fb == 0) {
+        fprintf(stderr, "drm_mirror: timed out waiting for primary framebuffer\n");
+        drmModeFreeResources(res);
+        return;
+    }
+    fprintf(stderr, "drm_mirror: confirmed primary fb=%u\n", last_fb);
+
     std::vector<SecondaryDisplay> secondary_displays;
     std::vector<uint32_t> used_crtcs;
     used_crtcs.push_back(primary_crtc_id);
