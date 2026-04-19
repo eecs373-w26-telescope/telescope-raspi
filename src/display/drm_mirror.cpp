@@ -58,29 +58,24 @@ static uint32_t GetPropertyId(int fd, uint32_t object_id, uint32_t object_type, 
     return result;
 }
 
-static void LogFBInfo(int fd, uint32_t fb_id) {
-    drmModeFBPtr fb = drmModeGetFB(fd, fb_id);
-    if (fb) {
-        LOG("drm_mirror: FB %u info: %dx%d, bpp %d, depth %d, pitch %d\n", fb_id, fb->width, fb->height, fb->bpp, fb->depth, fb->pitch);
-        drmModeFreeFB(fb);
-    } else {
-        LOG("drm_mirror: could not get info for FB %u (errno %d)\n", fb_id, errno);
-    }
-}
-
 static uint32_t FindPrimaryPlane(int fd, int crtc_index) {
     drmModePlaneResPtr planes = drmModeGetPlaneResources(fd);
     uint32_t result = 0;
     if (!planes) return 0;
+    LOG("drm_mirror: scanning %u planes for CRTC index %d\n", planes->count_planes, crtc_index);
     for (uint32_t i = 0; i < planes->count_planes && result == 0; i++) {
         drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[i]);
         if (plane) {
+            LOG("drm_mirror: plane %u has possible_crtcs 0x%x\n", plane->plane_id, plane->possible_crtcs);
             if (plane->possible_crtcs & (1 << crtc_index)) {
                 uint32_t type_id = GetPropertyId(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, "type");
                 drmModeObjectPropertiesPtr props = drmModeObjectGetProperties(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE);
                 if (props) {
                     for (uint32_t j = 0; j < props->count_props; j++) {
-                        if (props->props[j] == type_id && props->prop_values[j] == 1) result = plane->plane_id;
+                        if (props->props[j] == type_id) {
+                            LOG("drm_mirror: plane %u type is %llu\n", plane->plane_id, props->prop_values[j]);
+                            if (props->prop_values[j] == 1) result = plane->plane_id; // 1 is Primary
+                        }
                     }
                     drmModeFreeObjectProperties(props);
                 }
@@ -110,6 +105,9 @@ static void MirrorLoop() {
     }
     if (fd < 0) { LOG("drm_mirror: FATAL: master FD not found\n"); return; }
     
+    // Enable Universal Planes to see primary planes
+    drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
+    
     drmModeResPtr res = drmModeGetResources(fd);
     if (!res) { LOG("drm_mirror: FATAL: get resources failed\n"); return; }
     
@@ -122,8 +120,7 @@ static void MirrorLoop() {
             primary_crtc_id = res->crtcs[i];
             last_fb = c->buffer_id;
             primary_mode = c->mode;
-            LOG("drm_mirror: primary CRTC %u, fb %u\n", primary_crtc_id, last_fb);
-            LogFBInfo(fd, last_fb);
+            LOG("drm_mirror: primary CRTC %u active (fb %u)\n", primary_crtc_id, last_fb);
             drmModeFreeCrtc(c);
             break;
         }
@@ -178,25 +175,15 @@ static void MirrorLoop() {
     drmModeFreeResources(res);
 
     for (auto& disp : secondary_displays) {
-        // Full reset
-        drmModeSetCrtc(fd, disp.crtc_id, 0, 0, 0, nullptr, 0, nullptr);
         int ret = drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
         LOG("drm_mirror: SetCrtc %u result %d\n", disp.crtc_id, ret);
         
         if (disp.primary_plane_id) {
-            // Explicitly set the plane to the framebuffer
-            ret = drmModeSetPlane(fd, disp.primary_plane_id, disp.crtc_id, last_fb, 0,
-                                  0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
-                                  0, 0, disp.mode.hdisplay << 16, disp.mode.vdisplay << 16);
-            LOG("drm_mirror: SetPlane %u result %d\n", disp.primary_plane_id, ret);
-            
-            // Try rotation only if Plane is active
-            if (ret == 0) {
-                uint32_t prop_id = GetPropertyId(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
-                if (prop_id) {
-                    uint32_t val = (!DISPLAY_FLIP) ? (1 << 2) : (1 << 0);
-                    drmModeObjectSetProperty(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, prop_id, val);
-                }
+            uint32_t prop_id = GetPropertyId(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
+            if (prop_id) {
+                uint32_t val = (!DISPLAY_FLIP) ? (1 << 2) : (1 << 0);
+                int r = drmModeObjectSetProperty(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, prop_id, val);
+                LOG("drm_mirror: rotation set to %u result %d\n", val, r);
             }
         }
     }
