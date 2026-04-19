@@ -58,14 +58,6 @@ static uint32_t GetPropertyId(int fd, uint32_t object_id, uint32_t object_type, 
     return result;
 }
 
-static void SetProperty(int fd, uint32_t obj_id, uint32_t obj_type, const char* name, uint64_t val) {
-    uint32_t prop_id = GetPropertyId(fd, obj_id, obj_type, name);
-    if (prop_id) {
-        int ret = drmModeObjectSetProperty(fd, obj_id, obj_type, prop_id, val);
-        LOG("drm_mirror: set %s on obj %u to %llu: res %d\n", name, obj_id, val, ret);
-    }
-}
-
 static uint32_t FindPrimaryPlane(int fd, int crtc_index) {
     drmModePlaneResPtr planes = drmModeGetPlaneResources(fd);
     uint32_t result = 0;
@@ -113,13 +105,19 @@ static void MirrorLoop() {
     if (!res) return;
     
     uint32_t primary_crtc_id = 0, last_fb = 0;
-    drmModeModeInfo primary_mode = {};
+    uint32_t fb_w = 0, fb_h = 0;
     for (int i = 0; i < res->count_crtcs; i++) {
         drmModeCrtcPtr c = drmModeGetCrtc(fd, res->crtcs[i]);
         if (c && c->buffer_id != 0) {
             primary_crtc_id = res->crtcs[i];
             last_fb = c->buffer_id;
-            primary_mode = c->mode;
+            drmModeFBPtr fb = drmModeGetFB(fd, last_fb);
+            if (fb) {
+                fb_w = fb->width;
+                fb_h = fb->height;
+                drmModeFreeFB(fb);
+            }
+            LOG("drm_mirror: primary CRTC %u, fb %u (%dx%d)\n", primary_crtc_id, last_fb, fb_w, fb_h);
             drmModeFreeCrtc(c);
             break;
         }
@@ -156,14 +154,9 @@ static void MirrorLoop() {
                     drmModeFreeEncoder(enc);
                 }
                 if (chosen_crtc_id) {
-                    uint32_t plane_id = FindPrimaryPlane(fd, chosen_index);
-                    drmModeModeInfo mode = conn->modes[0];
-                    for (int m = 0; m < conn->count_modes; m++) {
-                        if (conn->modes[m].hdisplay == primary_mode.hdisplay &&
-                            conn->modes[m].vdisplay == primary_mode.vdisplay) { mode = conn->modes[m]; break; }
-                    }
-                    secondary_displays.push_back({res->connectors[i], chosen_crtc_id, chosen_index, plane_id, mode});
+                    secondary_displays.push_back({res->connectors[i], chosen_crtc_id, chosen_index, FindPrimaryPlane(fd, chosen_index), conn->modes[0]});
                     used_crtcs.push_back(chosen_crtc_id);
+                    LOG("drm_mirror: added secondary CRTC %u (index %d), mode %dx%d\n", chosen_crtc_id, chosen_index, conn->modes[0].hdisplay, conn->modes[0].vdisplay);
                 }
             }
         }
@@ -172,26 +165,26 @@ static void MirrorLoop() {
     drmModeFreeResources(res);
 
     for (auto& disp : secondary_displays) {
-        // Force monitor on
-        SetProperty(fd, disp.connector_id, DRM_MODE_OBJECT_CONNECTOR, "DPMS", 0);
-        
+        // Try to clear the CRTC first
+        drmModeSetCrtc(fd, disp.crtc_id, 0, 0, 0, nullptr, 0, nullptr);
         int ret = drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
         LOG("drm_mirror: SetCrtc %u res %d\n", disp.crtc_id, ret);
         
         if (disp.plane_id) {
-            // Force visibility
-            SetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, "alpha", 65535);
-            SetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, "zpos", 10);
-            
-            // Set rotation
-            uint32_t rot_val = (!DISPLAY_FLIP) ? (1 << 2) : (1 << 0);
-            SetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, "rotation", rot_val);
-            
-            // Ensure plane is linked to CRTC and FB
+            // Map full FB (fb_w x fb_h) to full screen (disp.mode.hdisplay x disp.mode.vdisplay)
             ret = drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0,
                                   0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
-                                  0, 0, disp.mode.hdisplay << 16, disp.mode.vdisplay << 16);
-            LOG("drm_mirror: SetPlane %u res %d\n", disp.plane_id, ret);
+                                  0, 0, fb_w << 16, fb_h << 16);
+            LOG("drm_mirror: SetPlane %u scaling res %d\n", disp.plane_id, ret);
+            
+            // Rotation - let's skip it for one run to see if we get a picture
+            /*
+            uint32_t prop_id = GetPropertyId(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
+            if (prop_id) {
+                uint32_t val = (!DISPLAY_FLIP) ? (1 << 2) : (1 << 0);
+                drmModeObjectSetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, prop_id, val);
+            }
+            */
         }
     }
 
