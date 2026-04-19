@@ -70,19 +70,14 @@ struct SecondaryDisplay {
 
 static void MirrorLoop() {
     g_log = fopen("/tmp/drm_mirror.log", "w");
-    LOG("--- drm_mirror: Root-Required VT Session ---\n");
+    LOG("--- drm_mirror: Warm-Up Session ---\n");
     
-    // Attempt to unbind console (Requires Root)
-    int r1 = system("echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/tmp/vt_error.log");
-    int r0 = system("echo 0 > /sys/class/vtconsole/vtcon0/bind 2>>/tmp/vt_error.log");
-    LOG("drm_mirror: VT unbind results: vtcon1=%d, vtcon0=%d (if non-zero, check /tmp/vt_error.log)\n", r1, r0);
+    // 1. Wait for system to settle
+    sleep(2);
 
-    // Stop TTY drawing
-    int tty_fd = open("/dev/tty1", O_RDWR);
-    if (tty_fd >= 0) {
-        ioctl(tty_fd, KDSETMODE, KD_GRAPHICS);
-        close(tty_fd);
-    }
+    // 2. Kill console
+    system("echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/dev/null");
+    system("echo 0 > /sys/class/vtconsole/vtcon0/bind 2>/dev/null");
 
     int fd = -1;
     for (int i = 0; i < 100 && fd < 0; i++) {
@@ -92,9 +87,8 @@ static void MirrorLoop() {
     if (fd < 0) { LOG("drm_mirror: FATAL: master FD not found\n"); return; }
     
     drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
-    
     drmModeResPtr res = drmModeGetResources(fd);
-    if (!res) { LOG("drm_mirror: FATAL: get resources failed\n"); return; }
+    if (!res) return;
     
     uint32_t primary_crtc_id = 0, last_fb = 0;
     uint32_t fb_w = 0, fb_h = 0;
@@ -111,7 +105,7 @@ static void MirrorLoop() {
         }
         if (c) drmModeFreeCrtc(c);
     }
-    if (!primary_crtc_id) { LOG("drm_mirror: FATAL: no primary CRTC\n"); drmModeFreeResources(res); return; }
+    if (!primary_crtc_id) return;
 
     std::vector<SecondaryDisplay> secondary_displays;
     std::vector<uint32_t> used_crtcs;
@@ -162,46 +156,47 @@ static void MirrorLoop() {
                     }
                     secondary_displays.push_back({res->connectors[i], chosen_crtc_id, chosen_index, primary_plane, conn->modes[0]});
                     used_crtcs.push_back(chosen_crtc_id);
-                    LOG("drm_mirror: added secondary CRTC %u\n", chosen_crtc_id);
+                    LOG("drm_mirror: secondary CRTC %u added\n", chosen_crtc_id);
                 }
             }
         }
         drmModeFreeConnector(conn);
     }
-    drmModeFreeResources(res);
+
+    // Initial explicit SetCrtc
+    for (auto& disp : secondary_displays) {
+        drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
+        drmModeDirtyFB(fd, last_fb, nullptr, 0);
+    }
 
     while (g_running) {
         drmModeCrtcPtr curr = drmModeGetCrtc(fd, primary_crtc_id);
         if (curr) {
-            if (curr->buffer_id != 0) {
+            if (curr->buffer_id != 0 && curr->buffer_id != last_fb) {
                 last_fb = curr->buffer_id;
                 for (auto& disp : secondary_displays) {
-                    drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
-                    if (planes) {
-                        for (uint32_t p = 0; p < planes->count_planes; p++) {
-                            drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[p]);
-                            if (plane && (plane->possible_crtcs & (1 << disp.crtc_index))) {
-                                if (plane->plane_id == disp.primary_plane_id) {
-                                    uint32_t rot_prop = GetPropertyId(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
-                                    if (rot_prop) {
-                                        uint32_t val = (!DISPLAY_FLIP) ? (1 << 2) : (1 << 0);
-                                        drmModeObjectSetProperty(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, rot_prop, val);
-                                    }
-                                    drmModeSetPlane(fd, plane->plane_id, disp.crtc_id, last_fb, 0,
-                                                    0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
-                                                    0, 0, fb_w << 16, fb_h << 16);
-                                } else {
-                                    drmModeSetPlane(fd, plane->plane_id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-                                }
-                            }
-                            if (plane) drmModeFreePlane(plane);
-                        }
+                    if (drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr) != 0) {
+                        drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
                     }
+                    
+                    // Hardware scaling/flip on every frame
+                    if (disp.primary_plane_id) {
+                        uint32_t rot_prop = GetPropertyId(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
+                        if (rot_prop) {
+                            uint32_t val = (!DISPLAY_FLIP) ? (1 << 2) : (1 << 0);
+                            drmModeObjectSetProperty(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, rot_prop, val);
+                        }
+                        drmModeSetPlane(fd, disp.primary_plane_id, disp.crtc_id, last_fb, 0,
+                                        0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
+                                        0, 0, fb_w << 16, fb_h << 16);
+                    }
+                    // Crucial for some Pi drivers to actually show the update
+                    drmModeDirtyFB(fd, last_fb, nullptr, 0);
                 }
             }
             drmModeFreeCrtc(curr);
         }
-        usleep(16666);
+        usleep(10000);
     }
     
     if (planes) drmModeFreePlaneResources(planes);
