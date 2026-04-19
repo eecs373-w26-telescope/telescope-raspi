@@ -70,7 +70,7 @@ struct SecondaryDisplay {
 
 static void MirrorLoop() {
     g_log = fopen("/tmp/drm_mirror.log", "w");
-    LOG("--- drm_mirror: Precision Flip Session ---\n");
+    LOG("--- drm_mirror: Hybrid-Sync Session ---\n");
     
     sleep(3);
     system("echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/dev/null");
@@ -112,10 +112,8 @@ static void MirrorLoop() {
         bool is_primary = false;
         if (conn->encoder_id) {
             drmModeEncoderPtr enc = drmModeGetEncoder(fd, conn->encoder_id);
-            if (enc) {
-                if (enc->crtc_id == primary_crtc_id) is_primary = true;
-                drmModeFreeEncoder(enc);
-            }
+            if (enc && enc->crtc_id == primary_crtc_id) is_primary = true;
+            if (enc) drmModeFreeEncoder(enc);
         }
 
         if (!is_primary) {
@@ -125,10 +123,8 @@ static void MirrorLoop() {
                 if (res->crtcs[c] == primary_crtc_id) continue;
                 for (int e = 0; e < conn->count_encoders && !chosen_crtc; e++) {
                     drmModeEncoderPtr enc = drmModeGetEncoder(fd, conn->encoders[e]);
-                    if (enc) {
-                        if (enc->possible_crtcs & (1 << c)) { chosen_crtc = res->crtcs[c]; chosen_idx = c; }
-                        drmModeFreeEncoder(enc);
-                    }
+                    if (enc && (enc->possible_crtcs & (1 << c))) { chosen_crtc = res->crtcs[c]; chosen_idx = c; }
+                    if (enc) drmModeFreeEncoder(enc);
                 }
             }
 
@@ -136,16 +132,14 @@ static void MirrorLoop() {
                 uint32_t pplane = 0;
                 for (uint32_t p = 0; p < planes->count_planes && pplane == 0; p++) {
                     drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[p]);
-                    if (plane) {
-                        if (plane->possible_crtcs & (1 << chosen_idx)) {
-                            uint32_t tid = GetPropertyId(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, "type");
-                            drmModeObjectPropertiesPtr props = drmModeObjectGetProperties(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE);
-                            for (uint32_t j = 0; j < props->count_props; j++) 
-                                if (props->props[j] == tid && props->prop_values[j] == 1) pplane = plane->plane_id;
-                            drmModeFreeObjectProperties(props);
-                        }
-                        drmModeFreePlane(plane);
+                    if (plane && (plane->possible_crtcs & (1 << chosen_idx))) {
+                        uint32_t tid = GetPropertyId(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, "type");
+                        drmModeObjectPropertiesPtr props = drmModeObjectGetProperties(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE);
+                        for (uint32_t j = 0; j < props->count_props; j++) 
+                            if (props->props[j] == tid && props->prop_values[j] == 1) pplane = plane->plane_id;
+                        drmModeFreeObjectProperties(props);
                     }
+                    if (plane) drmModeFreePlane(plane);
                 }
                 secondary_displays.push_back({res->connectors[i], chosen_crtc, chosen_idx, pplane, conn->modes[0]});
             }
@@ -153,48 +147,28 @@ static void MirrorLoop() {
         drmModeFreeConnector(conn);
     }
 
-    for (auto& disp : secondary_displays) {
-        drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
-        
-        if (disp.primary_plane_id) {
-            uint32_t rot_id = GetPropertyId(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
-            if (rot_id) {
-                // Try Vertical Flip (32). If it fails, fallback to Rotate 180 (4)
-                int r = drmModeObjectSetProperty(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 32);
-                if (r != 0) {
-                    LOG("drm_mirror: Vertical Flip (32) rejected (err %d). Trying Rotate 180 (4)...\n", r);
-                    r = drmModeObjectSetProperty(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 4);
-                }
-                LOG("drm_mirror: Rotation applied to plane %u: result %d\n", disp.primary_plane_id, r);
-            }
-            
-            drmModeSetPlane(fd, disp.primary_plane_id, disp.crtc_id, last_fb, 0,
-                            0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
-                            0, 0, fb_w << 16, fb_h << 16);
-        }
-
-        for (uint32_t p = 0; p < planes->count_planes; p++) {
-            drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[p]);
-            if (plane) {
-                if (plane->crtc_id == disp.crtc_id && plane->plane_id != disp.primary_plane_id) {
-                    drmModeSetPlane(fd, plane->plane_id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-                }
-                drmModeFreePlane(plane);
-            }
-        }
-    }
-
-    LOG("drm_mirror: main loop started\n");
-    int flip_err_count = 0;
+    LOG("drm_mirror: main loop started (Hybrid Sync)\n");
     while (g_running) {
         drmModeCrtcPtr curr = drmModeGetCrtc(fd, primary_crtc_id);
         if (curr) {
             if (curr->buffer_id != 0 && curr->buffer_id != last_fb) {
                 last_fb = curr->buffer_id;
                 for (auto& disp : secondary_displays) {
-                    int ret = drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr);
-                    if (ret != 0 && ret != -EBUSY) {
-                        if (flip_err_count++ < 5) LOG("drm_mirror: page flip failed on CRTC %u: %d\n", disp.crtc_id, ret);
+                    // Force state on every frame to prevent blanking
+                    if (disp.primary_plane_id) {
+                        uint32_t rot_id = GetPropertyId(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
+                        if (rot_id) {
+                            // Bit 5 (32) is reflect-y, Bit 2 (4) is rotate-180
+                            if (drmModeObjectSetProperty(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 32) != 0) {
+                                drmModeObjectSetProperty(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 4);
+                            }
+                        }
+                        // Set plane is more forceful than PageFlip
+                        drmModeSetPlane(fd, disp.primary_plane_id, disp.crtc_id, last_fb, 0,
+                                        0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
+                                        0, 0, fb_w << 16, fb_h << 16);
+                    } else {
+                        drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr);
                     }
                 }
             }
