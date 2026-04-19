@@ -2,9 +2,14 @@
 
 set -euxo pipefail
 
+FORCE_RELEASE=false
 FLIP_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
 	case $1 in
+		--release)
+			FORCE_RELEASE=true
+			shift
+			;;
 		--flip=true)
 			FLIP_OVERRIDE="1"
 			shift
@@ -33,9 +38,9 @@ done
 
 OS_ID=$(. /etc/os-release && echo "$ID")
 
-if [ "$OS_ID" = "debian" ] || grep -qi "raspberry" /proc/device-tree/model 2>/dev/null; then
+if [ "$FORCE_RELEASE" = true ] || [ "$OS_ID" = "debian" ] || [ "$OS_ID" = "ubuntu" ] || grep -qi "raspberry" /proc/device-tree/model 2>/dev/null; then
 	PRESET="release"
-	echo "==> Detected Raspberry Pi (os=$OS_ID), using release preset"
+	echo "==> Using release preset (DRM platform)"
 else
 	PRESET="debug"
 	echo "==> Detected dev machine (os=$OS_ID), using debug preset"

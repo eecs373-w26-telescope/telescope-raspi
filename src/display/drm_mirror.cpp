@@ -1,4 +1,5 @@
 #include "drm_mirror.h"
+#include "globals.h"
 
 #include <atomic>
 #include <cstdio>
@@ -6,6 +7,7 @@
 #include <cstring>
 #include <thread>
 #include <vector>
+#include <cerrno>
 
 #ifdef HAVE_LIBDRM
 
@@ -17,9 +19,10 @@
 
 static std::atomic<bool> g_running{false};
 static std::thread g_thread;
+static FILE* g_log = nullptr;
 
-// Reuse Raylib's DRM master fd rather than opening a fresh one.
-// A fresh open of /dev/dri/card0 is never DRM master, so modesetting ioctls fail with EACCES.
+#define LOG(...) if (g_log) { fprintf(g_log, __VA_ARGS__); fflush(g_log); }
+
 static int FindDRMMasterFd() {
     DIR* dir = opendir("/proc/self/fd");
     if (!dir) return -1;
@@ -44,28 +47,77 @@ static int FindDRMMasterFd() {
     return result;
 }
 
+static uint32_t GetPropertyId(int fd, uint32_t object_id, uint32_t object_type, const char* prop_name) {
+    uint32_t result = 0;
+    drmModeObjectPropertiesPtr props = drmModeObjectGetProperties(fd, object_id, object_type);
+    if (!props) return 0;
+
+    for (uint32_t i = 0; i < props->count_props && result == 0; i++) {
+        drmModePropertyPtr prop = drmModeGetProperty(fd, props->props[i]);
+        if (prop) {
+            if (strcmp(prop->name, prop_name) == 0) result = prop->prop_id;
+            drmModeFreeProperty(prop);
+        }
+    }
+
+    drmModeFreeObjectProperties(props);
+    return result;
+}
+
+static void SetRotation(int fd, uint32_t crtc_id, bool flip) {
+    drmModePlaneResPtr planes = drmModeGetPlaneResources(fd);
+    if (!planes) return;
+
+    for (uint32_t i = 0; i < planes->count_planes; i++) {
+        drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[i]);
+        if (plane) {
+            if (plane->crtc_id == crtc_id) {
+                uint32_t prop_id = GetPropertyId(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
+                if (prop_id) {
+                    uint32_t value = flip ? (1 << 2) : (1 << 0);
+                    int ret = drmModeObjectSetProperty(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, prop_id, value);
+                    if (ret == 0) {
+                        LOG("drm_mirror: set rotation on plane %u to %u\n", plane->plane_id, value);
+                    } else {
+                        LOG("drm_mirror: failed to set rotation on plane %u: %d\n", plane->plane_id, errno);
+                    }
+                }
+            }
+            drmModeFreePlane(plane);
+        }
+    }
+    drmModeFreePlaneResources(planes);
+}
+
 struct SecondaryDisplay {
     uint32_t connector_id;
     uint32_t crtc_id;
     drmModeModeInfo mode;
+    const char* name;
 };
 
 static void MirrorLoop() {
-    int fd = FindDRMMasterFd();
+    g_log = fopen("/tmp/drm_mirror.log", "w");
+    LOG("drm_mirror: starting MirrorLoop\n");
+
+    int fd = -1;
+    for (int i = 0; i < 100 && fd < 0; i++) {
+        fd = FindDRMMasterFd();
+        if (fd < 0) usleep(100000);
+    }
+
     if (fd < 0) {
-        fprintf(stderr, "drm_mirror: no DRM master fd found\n");
+        LOG("drm_mirror: could not find DRM master FD.\n");
         return;
     }
-    fprintf(stderr, "drm_mirror: using fd %d\n", fd);
+    LOG("drm_mirror: using master FD %d\n", fd);
 
     drmModeResPtr res = drmModeGetResources(fd);
     if (!res) {
-        fprintf(stderr, "drm_mirror: drmModeGetResources failed\n");
+        LOG("drm_mirror: failed to get DRM resources\n");
         return;
     }
-    fprintf(stderr, "drm_mirror: %d CRTCs, %d connectors\n", res->count_crtcs, res->count_connectors);
 
-    // Find the active primary CRTC set up by Raylib
     uint32_t primary_crtc_id = 0;
     drmModeModeInfo primary_mode = {};
     uint32_t last_fb = 0;
@@ -76,8 +128,7 @@ static void MirrorLoop() {
             primary_crtc_id = res->crtcs[i];
             primary_mode = c->mode;
             last_fb = c->buffer_id;
-            fprintf(stderr, "drm_mirror: primary CRTC id=%u fb=%u mode=%dx%d\n",
-                    primary_crtc_id, last_fb, primary_mode.hdisplay, primary_mode.vdisplay);
+            LOG("drm_mirror: identified primary CRTC %u with fb %u\n", primary_crtc_id, last_fb);
             drmModeFreeCrtc(c);
             break;
         }
@@ -85,101 +136,57 @@ static void MirrorLoop() {
     }
 
     if (!primary_crtc_id) {
-        fprintf(stderr, "drm_mirror: no active primary CRTC found\n");
+        LOG("drm_mirror: could not find active primary CRTC\n");
         drmModeFreeResources(res);
         return;
     }
-
-    // Wait for a valid framebuffer if it's currently 0 (early startup)
-    int wait_retries = 50;
-    while (last_fb == 0 && wait_retries-- > 0) {
-        drmModeCrtcPtr c = drmModeGetCrtc(fd, primary_crtc_id);
-        if (c) {
-            if (c->buffer_id != 0) {
-                last_fb = c->buffer_id;
-                primary_mode = c->mode;
-            }
-            drmModeFreeCrtc(c);
-        }
-        if (last_fb == 0) usleep(20000);
-    }
-
-    if (last_fb == 0) {
-        fprintf(stderr, "drm_mirror: timed out waiting for primary framebuffer\n");
-        drmModeFreeResources(res);
-        return;
-    }
-    fprintf(stderr, "drm_mirror: confirmed primary fb=%u\n", last_fb);
 
     std::vector<SecondaryDisplay> secondary_displays;
     std::vector<uint32_t> used_crtcs;
     used_crtcs.push_back(primary_crtc_id);
 
-    // Find all secondary connected connectors not driving the primary CRTC
     for (int i = 0; i < res->count_connectors; i++) {
         drmModeConnectorPtr conn = drmModeGetConnector(fd, res->connectors[i]);
         if (!conn) continue;
 
-        fprintf(stderr, "drm_mirror: connector id=%u status=%d modes=%d\n",
-                res->connectors[i], conn->connection, conn->count_modes);
-
-        if (conn->connection != DRM_MODE_CONNECTED || !conn->count_modes) {
-            drmModeFreeConnector(conn);
-            continue;
-        }
-
-        bool is_primary = false;
-        if (conn->encoder_id) {
-            drmModeEncoderPtr enc = drmModeGetEncoder(fd, conn->encoder_id);
-            if (enc) {
-                is_primary = (enc->crtc_id == primary_crtc_id);
-                drmModeFreeEncoder(enc);
-            }
-        }
-        if (is_primary) {
-            fprintf(stderr, "drm_mirror: connector id=%u is primary, skipping\n", res->connectors[i]);
-            drmModeFreeConnector(conn);
-            continue;
-        }
-
-        drmModeModeInfo best_mode = {};
-        // Prefer a mode matching the primary's resolution; fall back to first mode.
-        for (int m = 0; m < conn->count_modes; m++) {
-            if (conn->modes[m].hdisplay == primary_mode.hdisplay &&
-                conn->modes[m].vdisplay == primary_mode.vdisplay) {
-                best_mode = conn->modes[m];
-                break;
-            }
-        }
-        if (best_mode.hdisplay == 0) {
-            best_mode = conn->modes[0];
-            fprintf(stderr, "drm_mirror: no exact mode match for connector %u, using %dx%d\n",
-                    res->connectors[i], best_mode.hdisplay, best_mode.vdisplay);
-        }
-
-        uint32_t chosen_crtc_id = 0;
-        for (int e = 0; e < conn->count_encoders && !chosen_crtc_id; e++) {
-            drmModeEncoderPtr enc = drmModeGetEncoder(fd, conn->encoders[e]);
-            if (!enc) continue;
-            for (int c = 0; c < res->count_crtcs && !chosen_crtc_id; c++) {
-                uint32_t candidate_crtc_id = res->crtcs[c];
-                bool already_used = false;
-                for (uint32_t used : used_crtcs) if (used == candidate_crtc_id) already_used = true;
-
-                if (!already_used && (enc->possible_crtcs & (1 << c))) {
-                    chosen_crtc_id = candidate_crtc_id;
+        if (conn->connection == DRM_MODE_CONNECTED && conn->count_modes > 0) {
+            bool is_primary = false;
+            if (conn->encoder_id) {
+                drmModeEncoderPtr enc = drmModeGetEncoder(fd, conn->encoder_id);
+                if (enc) {
+                    if (enc->crtc_id == primary_crtc_id) is_primary = true;
+                    drmModeFreeEncoder(enc);
                 }
             }
-            drmModeFreeEncoder(enc);
-        }
 
-        if (chosen_crtc_id) {
-            secondary_displays.push_back({res->connectors[i], chosen_crtc_id, best_mode});
-            used_crtcs.push_back(chosen_crtc_id);
-            fprintf(stderr, "drm_mirror: adding secondary display connector=%u crtc=%u mode=%dx%d\n",
-                    res->connectors[i], chosen_crtc_id, best_mode.hdisplay, best_mode.vdisplay);
-        } else {
-            fprintf(stderr, "drm_mirror: could not find suitable CRTC for connector %u\n", res->connectors[i]);
+            if (!is_primary) {
+                uint32_t chosen_crtc_id = 0;
+                for (int e = 0; e < conn->count_encoders && !chosen_crtc_id; e++) {
+                    drmModeEncoderPtr enc = drmModeGetEncoder(fd, conn->encoders[e]);
+                    if (!enc) continue;
+                    for (int c = 0; c < res->count_crtcs && !chosen_crtc_id; c++) {
+                        uint32_t cand = res->crtcs[c];
+                        bool used = false;
+                        for (uint32_t u : used_crtcs) if (u == cand) used = true;
+                        if (!used && (enc->possible_crtcs & (1 << c))) chosen_crtc_id = cand;
+                    }
+                    drmModeFreeEncoder(enc);
+                }
+
+                if (chosen_crtc_id) {
+                    drmModeModeInfo mode = conn->modes[0];
+                    for (int m = 0; m < conn->count_modes; m++) {
+                        if (conn->modes[m].hdisplay == primary_mode.hdisplay &&
+                            conn->modes[m].vdisplay == primary_mode.vdisplay) {
+                            mode = conn->modes[m];
+                            break;
+                        }
+                    }
+                    secondary_displays.push_back({res->connectors[i], chosen_crtc_id, mode, "Secondary"});
+                    used_crtcs.push_back(chosen_crtc_id);
+                    LOG("drm_mirror: found secondary connector %u, assigned to CRTC %u\n", res->connectors[i], chosen_crtc_id);
+                }
+            }
         }
         drmModeFreeConnector(conn);
     }
@@ -187,19 +194,23 @@ static void MirrorLoop() {
     drmModeFreeResources(res);
 
     if (secondary_displays.empty()) {
-        fprintf(stderr, "drm_mirror: no secondary displays found\n");
+        LOG("drm_mirror: no secondary displays to mirror to\n");
         return;
     }
 
-    // Initialize all secondary displays with the current framebuffer
     for (auto it = secondary_displays.begin(); it != secondary_displays.end(); ) {
-        int ret = drmModeSetCrtc(fd, it->crtc_id, last_fb, 0, 0,
-                                 &it->connector_id, 1, &it->mode);
+        int ret = -1;
+        for (int retry = 0; retry < 5 && ret != 0; retry++) {
+            ret = drmModeSetCrtc(fd, it->crtc_id, last_fb, 0, 0, &it->connector_id, 1, &it->mode);
+            if (ret != 0) usleep(100000);
+        }
+
         if (ret != 0) {
-            fprintf(stderr, "drm_mirror: drmModeSetCrtc failed for crtc %u: %d (errno %d)\n", it->crtc_id, ret, errno);
+            LOG("drm_mirror: failed to set CRTC %u for secondary display: %d (errno %d)\n", it->crtc_id, ret, errno);
             it = secondary_displays.erase(it);
         } else {
-            fprintf(stderr, "drm_mirror: secondary crtc %u initialized\n", it->crtc_id);
+            LOG("drm_mirror: successfully took over CRTC %u\n", it->crtc_id);
+            SetRotation(fd, it->crtc_id, !DISPLAY_FLIP);
             ++it;
         }
     }
@@ -210,13 +221,20 @@ static void MirrorLoop() {
             if (curr->buffer_id && curr->buffer_id != last_fb) {
                 last_fb = curr->buffer_id;
                 for (auto& disp : secondary_displays) {
-                    // EBUSY means previous flip still pending - safe to ignore
-                    drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr);
+                    int ret = drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr);
+                    if (ret != 0 && errno != EBUSY) {
+                        drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
+                    }
                 }
             }
             drmModeFreeCrtc(curr);
         }
-        usleep(8000); // 125Hz poll, well above 60Hz display rate
+        usleep(8000);
+    }
+
+    if (g_log) {
+        fclose(g_log);
+        g_log = nullptr;
     }
 }
 
@@ -231,8 +249,6 @@ void StopDRMMirror() {
 }
 
 #else
-
 void StartDRMMirror() {}
 void StopDRMMirror() {}
-
 #endif
