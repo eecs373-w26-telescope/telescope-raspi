@@ -70,12 +70,19 @@ struct SecondaryDisplay {
 
 static void MirrorLoop() {
     g_log = fopen("/tmp/drm_mirror.log", "w");
-    LOG("--- drm_mirror: VT-Unbind Session ---\n");
+    LOG("--- drm_mirror: Root-Required VT Session ---\n");
     
-    // Nuclear Option: Unbind the VT console from the kernel
-    // This stops the kernel from drawing text on ANY screen
-    system("echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/dev/null");
-    system("echo 0 > /sys/class/vtconsole/vtcon0/bind 2>/dev/null");
+    // Attempt to unbind console (Requires Root)
+    int r1 = system("echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/tmp/vt_error.log");
+    int r0 = system("echo 0 > /sys/class/vtconsole/vtcon0/bind 2>>/tmp/vt_error.log");
+    LOG("drm_mirror: VT unbind results: vtcon1=%d, vtcon0=%d (if non-zero, check /tmp/vt_error.log)\n", r1, r0);
+
+    // Stop TTY drawing
+    int tty_fd = open("/dev/tty1", O_RDWR);
+    if (tty_fd >= 0) {
+        ioctl(tty_fd, KDSETMODE, KD_GRAPHICS);
+        close(tty_fd);
+    }
 
     int fd = -1;
     for (int i = 0; i < 100 && fd < 0; i++) {
