@@ -70,9 +70,12 @@ struct SecondaryDisplay {
 
 static void MirrorLoop() {
     g_log = fopen("/tmp/drm_mirror.log", "w");
-    LOG("--- drm_mirror: Vertical Flip Session ---\n");
+    LOG("--- drm_mirror: Precision Flip Session ---\n");
     
     sleep(3);
+    system("echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/dev/null");
+    system("echo 0 > /sys/class/vtconsole/vtcon0/bind 2>/dev/null");
+
     int fd = -1;
     for (int i = 0; i < 50 && fd < 0; i++) {
         fd = FindDRMMasterFd();
@@ -151,28 +154,25 @@ static void MirrorLoop() {
     }
 
     for (auto& disp : secondary_displays) {
-        // 1. Initial SetCrtc (ONCE ONLY to avoid flickering)
         drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
         
         if (disp.primary_plane_id) {
-            // 2. Vertical Flip (reflect-y = bit 5 = 32)
             uint32_t rot_id = GetPropertyId(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
             if (rot_id) {
-                // We want Vertical Flip. 
-                // Often 'reflect-y' is 32. Let's use 32. 
-                // If you need 180 deg rotation, use 4. 
-                uint32_t val = 32; 
-                int r = drmModeObjectSetProperty(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, rot_id, val);
-                LOG("drm_mirror: set vertical flip (32) on plane %u: result %d\n", disp.primary_plane_id, r);
+                // Try Vertical Flip (32). If it fails, fallback to Rotate 180 (4)
+                int r = drmModeObjectSetProperty(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 32);
+                if (r != 0) {
+                    LOG("drm_mirror: Vertical Flip (32) rejected (err %d). Trying Rotate 180 (4)...\n", r);
+                    r = drmModeObjectSetProperty(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 4);
+                }
+                LOG("drm_mirror: Rotation applied to plane %u: result %d\n", disp.primary_plane_id, r);
             }
             
-            // 3. Initial Plane Setup (scaling)
             drmModeSetPlane(fd, disp.primary_plane_id, disp.crtc_id, last_fb, 0,
                             0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
                             0, 0, fb_w << 16, fb_h << 16);
         }
 
-        // 4. Wipe only planes currently assigned to this secondary CRTC
         for (uint32_t p = 0; p < planes->count_planes; p++) {
             drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[p]);
             if (plane) {
@@ -184,16 +184,17 @@ static void MirrorLoop() {
         }
     }
 
-    LOG("drm_mirror: main loop started (PageFlip only)\n");
+    LOG("drm_mirror: main loop started\n");
+    int flip_err_count = 0;
     while (g_running) {
         drmModeCrtcPtr curr = drmModeGetCrtc(fd, primary_crtc_id);
         if (curr) {
             if (curr->buffer_id != 0 && curr->buffer_id != last_fb) {
                 last_fb = curr->buffer_id;
                 for (auto& disp : secondary_displays) {
-                    // PageFlip is flicker-free
-                    if (drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr) == -EBUSY) {
-                        // If busy, it's okay, skip frame to keep sync
+                    int ret = drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr);
+                    if (ret != 0 && ret != -EBUSY) {
+                        if (flip_err_count++ < 5) LOG("drm_mirror: page flip failed on CRTC %u: %d\n", disp.crtc_id, ret);
                     }
                 }
             }
