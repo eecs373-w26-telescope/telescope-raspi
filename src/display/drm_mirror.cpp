@@ -70,17 +70,12 @@ struct SecondaryDisplay {
 
 static void MirrorLoop() {
     g_log = fopen("/tmp/drm_mirror.log", "w");
-    LOG("--- drm_mirror: TTY-Graphics Session ---\n");
+    LOG("--- drm_mirror: VT-Unbind Session ---\n");
     
-    // Attempt to set TTY to graphics mode to stop kernel logging to screen
-    int tty_fd = open("/dev/tty1", O_RDWR);
-    if (tty_fd >= 0) {
-        if (ioctl(tty_fd, KDSETMODE, KD_GRAPHICS) == 0) {
-            LOG("drm_mirror: set TTY1 to graphics mode\n");
-        } else {
-            LOG("drm_mirror: failed to set TTY1 to graphics mode: %d\n", errno);
-        }
-    }
+    // Nuclear Option: Unbind the VT console from the kernel
+    // This stops the kernel from drawing text on ANY screen
+    system("echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/dev/null");
+    system("echo 0 > /sys/class/vtconsole/vtcon0/bind 2>/dev/null");
 
     int fd = -1;
     for (int i = 0; i < 100 && fd < 0; i++) {
@@ -202,10 +197,6 @@ static void MirrorLoop() {
         usleep(16666);
     }
     
-    if (tty_fd >= 0) {
-        ioctl(tty_fd, KDSETMODE, KD_TEXT);
-        close(tty_fd);
-    }
     if (planes) drmModeFreePlaneResources(planes);
     if (g_log) fclose(g_log);
 }
