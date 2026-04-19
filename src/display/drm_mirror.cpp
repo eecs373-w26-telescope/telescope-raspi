@@ -70,14 +70,14 @@ struct SecondaryDisplay {
 
 static void MirrorLoop() {
     g_log = fopen("/tmp/drm_mirror.log", "w");
-    LOG("--- drm_mirror: Smooth Mirror Session ---\n");
+    LOG("--- drm_mirror: Relentless Mirror Session ---\n");
     
     sleep(3);
     system("echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/dev/null");
     system("echo 0 > /sys/class/vtconsole/vtcon0/bind 2>/dev/null");
 
     int fd = -1;
-    for (int i = 0; i < 100 && fd < 0; i++) {
+    for (int i = 0; i < 50 && fd < 0; i++) {
         fd = FindDRMMasterFd();
         if (fd < 0) usleep(100000);
     }
@@ -101,6 +101,7 @@ static void MirrorLoop() {
         }
         if (c) drmModeFreeCrtc(c);
     }
+    if (!primary_crtc_id) return;
 
     std::vector<SecondaryDisplay> secondary_displays;
     drmModePlaneResPtr planes = drmModeGetPlaneResources(fd);
@@ -129,44 +130,29 @@ static void MirrorLoop() {
             }
 
             if (chosen_crtc) {
-                uint32_t primary_plane = 0;
-                for (uint32_t p = 0; p < planes->count_planes && primary_plane == 0; p++) {
+                uint32_t pplane = 0;
+                for (uint32_t p = 0; p < planes->count_planes && pplane == 0; p++) {
                     drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[p]);
                     if (plane && (plane->possible_crtcs & (1 << chosen_idx))) {
                         uint32_t tid = GetPropertyId(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, "type");
                         drmModeObjectPropertiesPtr props = drmModeObjectGetProperties(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE);
                         for (uint32_t j = 0; j < props->count_props; j++) 
-                            if (props->props[j] == tid && props->prop_values[j] == 1) primary_plane = plane->plane_id;
+                            if (props->props[j] == tid && props->prop_values[j] == 1) pplane = plane->plane_id;
                         drmModeFreeObjectProperties(props);
                     }
                     if (plane) drmModeFreePlane(plane);
                 }
-                secondary_displays.push_back({res->connectors[i], chosen_crtc, chosen_idx, primary_plane, conn->modes[0]});
+                secondary_displays.push_back({res->connectors[i], chosen_crtc, chosen_idx, pplane, conn->modes[0]});
+                LOG("drm_mirror: target secondary monitor found (CRTC %u, Plane %u)\n", chosen_crtc, pplane);
             }
         }
         drmModeFreeConnector(conn);
     }
 
-    // --- SETUP SECONDARY DISPLAY ONCE ---
+    // Initialize displays
     for (auto& disp : secondary_displays) {
         drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
-        
-        if (disp.plane_id) {
-            uint32_t rot_id = GetPropertyId(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
-            if (rot_id) {
-                // User specifically wants Vertical Flip (reflect-y = 32)
-                if (drmModeObjectSetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 32) != 0) {
-                    // Fallback to Rotate-180 if 32 is rejected
-                    drmModeObjectSetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 4);
-                }
-            }
-            // Scale to fit once
-            drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0,
-                            0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
-                            0, 0, fb_w << 16, fb_h << 16);
-        }
-
-        // Wipe other planes on this CRTC ONLY
+        // Wipe other planes on this monitor once
         if (planes) {
             for (uint32_t p = 0; p < planes->count_planes; p++) {
                 drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[p]);
@@ -180,22 +166,31 @@ static void MirrorLoop() {
         }
     }
 
-    LOG("drm_mirror: entering main loop (Sync Updates)\n");
+    LOG("drm_mirror: main loop started (SetPlane Updates)\n");
     while (g_running) {
         drmModeCrtcPtr curr = drmModeGetCrtc(fd, primary_crtc_id);
         if (curr) {
             if (curr->buffer_id != 0 && curr->buffer_id != last_fb) {
                 last_fb = curr->buffer_id;
                 for (auto& disp : secondary_displays) {
-                    // PageFlip is flicker-free and hardware synchronized
-                    if (drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr) == -EBUSY) {
-                        // Skip if hardware is busy to prevent frame queue buildup and flickering
+                    // Set Plane on every frame. This is flicker-free on modern Pi drivers 
+                    // if the mode hasn't changed, and much more stable than PageFlip.
+                    if (disp.plane_id) {
+                        uint32_t rot_id = GetPropertyId(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
+                        if (rot_id) {
+                            // Bit 2 (4) is Rotate-180 (Vertical + Horizontal Flip)
+                            // This is the most reliable way to flip a mirrored screen.
+                            drmModeObjectSetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 4);
+                        }
+                        drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0,
+                                        0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
+                                        0, 0, fb_w << 16, fb_h << 16);
                     }
                 }
             }
             drmModeFreeCrtc(curr);
         }
-        usleep(8000); 
+        usleep(10000); 
     }
     
     if (planes) drmModeFreePlaneResources(planes);
