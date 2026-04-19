@@ -75,7 +75,6 @@ static void SetRotation(int fd, uint32_t crtc_id, int crtc_index, bool flip) {
                 uint32_t type_id = GetPropertyId(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, "type");
                 uint32_t plane_type = 0;
                 
-                // Fetch plane type
                 drmModeObjectPropertiesPtr props = drmModeObjectGetProperties(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE);
                 if (props) {
                     for (uint32_t j = 0; j < props->count_props; j++) {
@@ -84,13 +83,13 @@ static void SetRotation(int fd, uint32_t crtc_id, int crtc_index, bool flip) {
                     drmModeFreeObjectProperties(props);
                 }
 
-                // 1 is Primary plane
+                // Plane type 1 is Primary
                 if (plane_type == 1) {
                     uint32_t prop_id = GetPropertyId(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
                     if (prop_id) {
                         uint32_t value = flip ? (1 << 2) : (1 << 0);
                         int ret = drmModeObjectSetProperty(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE, prop_id, value);
-                        LOG("drm_mirror: set rotation %u on primary plane %u for CRTC %u: %d\n", value, plane->plane_id, crtc_id, ret);
+                        LOG("drm_mirror: rotation set result: %d\n", ret);
                     }
                 }
             }
@@ -108,8 +107,8 @@ struct SecondaryDisplay {
 };
 
 static void MirrorLoop() {
-    g_log = fopen("/tmp/drm_mirror.log", "w");
-    LOG("drm_mirror: starting MirrorLoop\n");
+    g_log = fopen("/tmp/drm_mirror.log", "a");
+    LOG("\n--- drm_mirror: MirrorLoop start ---\n");
 
     int fd = -1;
     for (int i = 0; i < 100 && fd < 0; i++) {
@@ -117,21 +116,30 @@ static void MirrorLoop() {
         if (fd < 0) usleep(100000);
     }
 
-    if (fd < 0) return;
+    if (fd < 0) {
+        LOG("drm_mirror: FATAL: could not find DRM master FD\n");
+        return;
+    }
+    LOG("drm_mirror: found master FD %d\n", fd);
 
     drmModeResPtr res = drmModeGetResources(fd);
-    if (!res) return;
+    if (!res) {
+        LOG("drm_mirror: FATAL: failed to get resources\n");
+        return;
+    }
 
     uint32_t primary_crtc_id = 0;
     drmModeModeInfo primary_mode = {};
     uint32_t last_fb = 0;
 
+    // Identify primary display set up by Raylib
     for (int i = 0; i < res->count_crtcs; i++) {
         drmModeCrtcPtr c = drmModeGetCrtc(fd, res->crtcs[i]);
         if (c && c->mode_valid && c->buffer_id != 0) {
             primary_crtc_id = res->crtcs[i];
             primary_mode = c->mode;
             last_fb = c->buffer_id;
+            LOG("drm_mirror: primary CRTC %u active with fb %u\n", primary_crtc_id, last_fb);
             drmModeFreeCrtc(c);
             break;
         }
@@ -139,6 +147,7 @@ static void MirrorLoop() {
     }
 
     if (!primary_crtc_id) {
+        LOG("drm_mirror: FATAL: no primary CRTC found\n");
         drmModeFreeResources(res);
         return;
     }
@@ -147,6 +156,7 @@ static void MirrorLoop() {
     std::vector<uint32_t> used_crtcs;
     used_crtcs.push_back(primary_crtc_id);
 
+    // Scan for secondary monitors
     for (int i = 0; i < res->count_connectors; i++) {
         drmModeConnectorPtr conn = drmModeGetConnector(fd, res->connectors[i]);
         if (!conn) continue;
@@ -190,6 +200,7 @@ static void MirrorLoop() {
                     }
                     secondary_displays.push_back({res->connectors[i], chosen_crtc_id, chosen_crtc_index, mode});
                     used_crtcs.push_back(chosen_crtc_id);
+                    LOG("drm_mirror: secondary connector %u assigned CRTC %u\n", res->connectors[i], chosen_crtc_id);
                 }
             }
         }
@@ -198,11 +209,22 @@ static void MirrorLoop() {
 
     drmModeFreeResources(res);
 
-    for (auto& disp : secondary_displays) {
-        drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
-        SetRotation(fd, disp.crtc_id, disp.crtc_index, !DISPLAY_FLIP);
+    if (secondary_displays.empty()) {
+        LOG("drm_mirror: no secondary displays found\n");
+        return;
     }
 
+    // Attempt takeover
+    for (auto& disp : secondary_displays) {
+        int ret = drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
+        LOG("drm_mirror: drmModeSetCrtc for CRTC %u: %d\n", disp.crtc_id, ret);
+        if (ret == 0) {
+            SetRotation(fd, disp.crtc_id, disp.crtc_index, !DISPLAY_FLIP);
+        }
+    }
+
+    LOG("drm_mirror: entering main loop\n");
+    int frames = 0;
     while (g_running) {
         drmModeCrtcPtr curr = drmModeGetCrtc(fd, primary_crtc_id);
         if (curr) {
@@ -214,12 +236,14 @@ static void MirrorLoop() {
                         drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
                     }
                 }
+                if (frames++ < 5) LOG("drm_mirror: frame %d flipped\n", frames);
             }
             drmModeFreeCrtc(curr);
         }
-        usleep(10000);
+        usleep(8000);
     }
 
+    LOG("drm_mirror: MirrorLoop exit\n");
     if (g_log) fclose(g_log);
 }
 
