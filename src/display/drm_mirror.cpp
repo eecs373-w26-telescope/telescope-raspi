@@ -70,12 +70,12 @@ struct SecondaryDisplay {
 
 static void MirrorLoop() {
     g_log = fopen("/tmp/drm_mirror.log", "w");
-    LOG("--- drm_mirror: Warm-Up Session ---\n");
+    LOG("--- drm_mirror: Stable Mirror Session ---\n");
     
     // 1. Wait for system to settle
-    sleep(2);
+    sleep(3);
 
-    // 2. Kill console
+    // 2. Aggressively unbind console from kernel
     system("echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/dev/null");
     system("echo 0 > /sys/class/vtconsole/vtcon0/bind 2>/dev/null");
 
@@ -163,40 +163,66 @@ static void MirrorLoop() {
         drmModeFreeConnector(conn);
     }
 
-    // Initial explicit SetCrtc
+    // --- INITIAL SETUP ONLY (Do not repeat in loop) ---
     for (auto& disp : secondary_displays) {
+        // Set the mode once
         drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
-        drmModeDirtyFB(fd, last_fb, nullptr, 0);
+        
+        if (disp.primary_plane_id) {
+            // Apply rotation once
+            uint32_t rot_prop = GetPropertyId(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
+            if (rot_prop) {
+                // Bitmask: bit 0=0deg, bit 1=90deg, bit 2=180deg, bit 3=270deg, bit 4=reflect-x, bit 5=reflect-y
+                // If DISPLAY_FLIP is 1 (primary is flipped), secondary should be 0 (identity) to match?
+                // Actually, if they are mirrored physically, they should both be the same? 
+                // Let's try 180 degrees (bit 2 = 4) if DISPLAY_FLIP is NOT set.
+                uint32_t val = (DISPLAY_FLIP == 0) ? 4 : 1; 
+                drmModeObjectSetProperty(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, rot_prop, val);
+                LOG("drm_mirror: applied rotation %u to plane %u\n", val, disp.primary_plane_id);
+            }
+            
+            // Set initial scaling
+            drmModeSetPlane(fd, disp.primary_plane_id, disp.crtc_id, last_fb, 0,
+                            0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
+                            0, 0, fb_w << 16, fb_h << 16);
+        }
+        
+        // Wipe other planes on this CRTC ONLY
+        if (planes) {
+            for (uint32_t p = 0; p < planes->count_planes; p++) {
+                drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[p]);
+                if (plane) {
+                    if ((plane->possible_crtcs & (1 << disp.crtc_index)) && plane->plane_id != disp.primary_plane_id) {
+                        drmModeSetPlane(fd, plane->plane_id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                    }
+                    drmModeFreePlane(plane);
+                }
+            }
+        }
     }
 
+    LOG("drm_mirror: stabilized main loop started\n");
     while (g_running) {
         drmModeCrtcPtr curr = drmModeGetCrtc(fd, primary_crtc_id);
         if (curr) {
             if (curr->buffer_id != 0 && curr->buffer_id != last_fb) {
                 last_fb = curr->buffer_id;
                 for (auto& disp : secondary_displays) {
+                    // Use PageFlip for smooth sync
                     if (drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr) != 0) {
-                        drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
-                    }
-                    
-                    // Hardware scaling/flip on every frame
-                    if (disp.primary_plane_id) {
-                        uint32_t rot_prop = GetPropertyId(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
-                        if (rot_prop) {
-                            uint32_t val = (!DISPLAY_FLIP) ? (1 << 2) : (1 << 0);
-                            drmModeObjectSetProperty(fd, disp.primary_plane_id, DRM_MODE_OBJECT_PLANE, rot_prop, val);
+                        // Fallback to SetPlane if Flip fails (e.g. format issues)
+                        if (disp.primary_plane_id) {
+                            drmModeSetPlane(fd, disp.primary_plane_id, disp.crtc_id, last_fb, 0,
+                                            0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
+                                            0, 0, fb_w << 16, fb_h << 16);
                         }
-                        drmModeSetPlane(fd, disp.primary_plane_id, disp.crtc_id, last_fb, 0,
-                                        0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
-                                        0, 0, fb_w << 16, fb_h << 16);
                     }
-                    // Crucial for some Pi drivers to actually show the update
-                    drmModeDirtyFB(fd, last_fb, nullptr, 0);
                 }
             }
             drmModeFreeCrtc(curr);
         }
-        usleep(10000);
+        // Poll slower to reduce CPU and bus contention
+        usleep(10000); 
     }
     
     if (planes) drmModeFreePlaneResources(planes);
