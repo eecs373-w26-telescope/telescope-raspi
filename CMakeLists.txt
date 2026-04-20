@@ -18,6 +18,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(raylib)
 
 # Main executable
+# Note: drm_mirror files have been removed
 file(GLOB_RECURSE SOURCES src/*.cpp src/*.c src/*.h src/*.hpp)
 add_executable(${PROJECT_NAME} ${SOURCES})
 
@@ -28,18 +29,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 target_link_libraries(${PROJECT_NAME} PRIVATE raylib)
 
-find_package(PkgConfig QUIET)
-if(PKG_CONFIG_FOUND)
-    pkg_check_modules(DRM QUIET libdrm)
-    if(DRM_FOUND)
-        target_include_directories(${PROJECT_NAME} PRIVATE ${DRM_INCLUDE_DIRS})
-        target_link_libraries(${PROJECT_NAME} PRIVATE ${DRM_LIBRARIES})
-        target_compile_definitions(${PROJECT_NAME} PRIVATE HAVE_LIBDRM)
-    endif()
-endif()
-
-# Flip display for physical mirror on release builds targeting raspi
-# Override with -DDISPLAY_FLIP_OVERRIDE=0 or -DDISPLAY_FLIP_OVERRIDE=1
+# PRESERVE FLIP FLAG FUNCTIONALITY
+# Override with -DDISPLAY_FLIP_OVERRIDE=0 or -DDISPLAY_FLIP_OVERRIDE=1 (passed by build.sh)
 if(DEFINED DISPLAY_FLIP_OVERRIDE)
     set(DISPLAY_FLIP ${DISPLAY_FLIP_OVERRIDE})
     unset(DISPLAY_FLIP_OVERRIDE CACHE)
