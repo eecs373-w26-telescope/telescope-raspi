@@ -1,11 +1,7 @@
 #!/bin/bash
-# install.sh - Restores the original single-monitor DRM service
+# install.sh - Installs the original single-monitor DRM service
 
 set -e
-
-echo "==> Rebuilding application for raw DRM..."
-./clean.sh
-./build.sh --release
 
 echo "==> Installing telescope.service..."
 # Copy the service file created in the project directory to the system directory
@@ -17,5 +13,5 @@ sudo systemctl enable telescope.service
 sudo systemctl restart telescope.service
 
 echo ""
-echo "==> Restoration complete!"
+echo "==> Installation complete!"
 echo "Status: $(systemctl is-active telescope.service)"
