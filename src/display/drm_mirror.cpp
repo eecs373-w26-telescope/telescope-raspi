@@ -71,9 +71,9 @@ struct SecondaryDisplay {
 
 static void MirrorLoop() {
     g_log = fopen("/tmp/drm_mirror.log", "w");
-    LOG("--- drm_mirror: High-Efficiency Session ---\n");
+    LOG("--- drm_mirror: Double-Wide Sync Session ---\n");
     
-    // 1. Real-time priority to stop jitter
+    // Real-time priority for zero jitter
     struct sched_param param;
     param.sched_priority = sched_get_priority_max(SCHED_FIFO);
     pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
@@ -106,6 +106,7 @@ static void MirrorLoop() {
         }
         if (c) drmModeFreeCrtc(c);
     }
+    if (!primary_crtc_id) return;
 
     std::vector<SecondaryDisplay> secondary_displays;
     drmModePlaneResPtr planes = drmModeGetPlaneResources(fd);
@@ -152,68 +153,47 @@ static void MirrorLoop() {
         drmModeFreeConnector(conn);
     }
 
-    // --- HEAVY SETUP PHASE (ONCE ONLY) ---
+    // Initialize
     for (auto& disp : secondary_displays) {
-        // Force initial CRTC mode
         drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
-        // Disable Cursor to prevent kernel fighting
+        // Disable cursor
         drmModeSetCursor(fd, disp.crtc_id, 0, 0, 0);
-
+        // Reset rotation to identity (0) because we are doing the flip in software now
         if (disp.plane_id) {
             uint32_t rot_id = GetPropertyId(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
-            if (rot_id) drmModeObjectSetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 4); // Rotate-180
-            
-            drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0,
-                            0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
-                            0, 0, fb_w << 16, fb_h << 16);
-        }
-
-        // Scrub non-primary planes ONCE to stop bleeding
-        if (planes) {
-            for (uint32_t p = 0; p < planes->count_planes; p++) {
-                drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[p]);
-                if (plane) {
-                    if (plane->crtc_id == disp.crtc_id && plane->plane_id != disp.plane_id) {
-                        drmModeSetPlane(fd, plane->plane_id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-                    }
-                    drmModeFreePlane(plane);
-                }
-            }
+            if (rot_id) drmModeObjectSetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 1);
         }
     }
 
-    LOG("drm_mirror: optimized loop started\n");
-    int vt_timer = 0;
+    LOG("drm_mirror: main loop started (Offset Updates)\n");
     while (g_running) {
-        // 1. Sync to Primary VBlank
+        // Wait for Primary VBlank
         drmVBlank vbl = {};
         vbl.request.type = (drmVBlankSeqType) (DRM_VBLANK_RELATIVE | (primary_crtc_idx << DRM_VBLANK_HIGH_CRTC_SHIFT));
         vbl.request.sequence = 1;
         drmWaitVBlank(fd, &vbl);
 
-        // 2. Immediate check for primary FB flip
         drmModeCrtcPtr curr = drmModeGetCrtc(fd, primary_crtc_id);
         if (curr) {
             if (curr->buffer_id != 0 && curr->buffer_id != last_fb) {
                 last_fb = curr->buffer_id;
                 for (auto& disp : secondary_displays) {
-                    // PageFlip is smoothest for slaved monitors
-                    if (drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr) != 0) {
-                        // Safe fallback only if flip fails
-                        if (disp.plane_id) {
-                            drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0, 0, 0, disp.mode.hdisplay, disp.mode.vdisplay, 0, 0, fb_w << 16, fb_h << 16);
-                        }
+                    if (disp.plane_id) {
+                        // Software-Side logic: 
+                        // The Primary monitor shows FB pixels [0 to fb_w/2]
+                        // The Secondary monitor shows FB pixels [fb_w/2 to fb_w] (which are flipped)
+                        uint32_t half_w = fb_w / 2;
+                        drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0,
+                                        0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
+                                        half_w << 16, 0, half_w << 16, fb_h << 16);
+                    } else {
+                        drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr);
                     }
                 }
             }
             drmModeFreeCrtc(curr);
         }
-
-        // 3. Keep console suppressed (low frequency)
-        if (++vt_timer > 600) { // Every ~10 seconds
-            if (system("echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/dev/null") != 0) {}
-            vt_timer = 0;
-        }
+        usleep(5000); 
     }
     
     if (planes) drmModeFreePlaneResources(planes);

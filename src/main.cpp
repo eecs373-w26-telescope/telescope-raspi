@@ -25,7 +25,7 @@ int main(int argc, char* argv[]) {
 	std::signal(SIGTSTP, signalHandler);
 
 	SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
-	InitWindow(screenRes, screenRes, "EECS373 - Telescope");
+	InitWindow(screenRes * 2, screenRes, "EECS373 - Telescope");
 	StartDRMMirror();
 
 	monoFont = LoadFontEx("resources/JetBrainsMono-Regular.ttf", 96, nullptr, 0);
