@@ -18,7 +18,6 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(raylib)
 
 # Main executable
-# Note: drm_mirror files have been removed
 file(GLOB_RECURSE SOURCES src/*.cpp src/*.c src/*.h src/*.hpp)
 add_executable(${PROJECT_NAME} ${SOURCES})
 
@@ -29,8 +28,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 target_link_libraries(${PROJECT_NAME} PRIVATE raylib)
 
-# PRESERVE FLIP FLAG FUNCTIONALITY
-# Override with -DDISPLAY_FLIP_OVERRIDE=0 or -DDISPLAY_FLIP_OVERRIDE=1 (passed by build.sh)
+# Original Flip display logic
 if(DEFINED DISPLAY_FLIP_OVERRIDE)
     set(DISPLAY_FLIP ${DISPLAY_FLIP_OVERRIDE})
     unset(DISPLAY_FLIP_OVERRIDE CACHE)

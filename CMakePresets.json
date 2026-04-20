@@ -16,6 +16,7 @@
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
+        "PLATFORM": "DRM",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "OFF"
       }
     }
