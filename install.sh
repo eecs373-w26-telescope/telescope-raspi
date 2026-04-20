@@ -4,6 +4,12 @@
 set -e
 
 echo "==> Installing telescope.service..."
+
+# Remove any existing file or symlink to prevent "same file" errors
+if [ -L /etc/systemd/system/telescope.service ] || [ -f /etc/systemd/system/telescope.service ]; then
+    sudo rm /etc/systemd/system/telescope.service
+fi
+
 # Copy the service file created in the project directory to the system directory
 sudo cp telescope.service /etc/systemd/system/telescope.service
 
