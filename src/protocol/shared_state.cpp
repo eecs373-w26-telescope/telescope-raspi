@@ -28,6 +28,11 @@ void SharedState::updateStateSync(const uint8_t* payload) {
 	}
 }
 
+void SharedState::updatePointing(const uint8_t* payload) {
+	std::memcpy(&pointing, payload, sizeof(PointingPayload));
+	pointing_received = true;
+}
+
 void SharedState::updateDsoTarget(const uint8_t* payload) {
 	std::memcpy(&dso_target, payload, sizeof(DsoTargetPayload));
 	dso_target_received = (dso_target.status != DSO_NO_TARGET);

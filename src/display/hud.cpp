@@ -173,16 +173,20 @@ static void DrawBottomLeft() {
         MonoText(hdg_buf, x, hdg_y, FONT_L, imu_received ? DisplayColor() : DimColor());
 }
 
-// Bottom-right: GPS fix indicator + debug connection indicator
+// Bottom-right: GPS fix indicator + debug connection indicator + ALT/AZ
 static void DrawBottomRight() {
-        bool gps_received;
+        bool gps_received, pointing_received;
         uint8_t num_sats;
         uint32_t current_debug_count;
+        int32_t alt_mas, az_mas;
         {
                 std::lock_guard<std::mutex> lock(g_shared_state.mtx);
                 gps_received        = g_shared_state.gps_received;
                 num_sats            = g_shared_state.gps.num_satellites;
                 current_debug_count = g_shared_state.debug_update_count;
+                pointing_received   = g_shared_state.pointing_received;
+                alt_mas             = g_shared_state.pointing.alt;
+                az_mas              = g_shared_state.pointing.az;
         }
 
         if (current_debug_count != last_debug_count) {
@@ -197,20 +201,40 @@ static void DrawBottomRight() {
         float right_x = s - PAD - 6.0f;
         float bottom_y = s - PAD - 6.0f;
 
+        // Bottom to Top: ALT, AZ, GPS, DBG
+        float alt_row_y = bottom_y - FONT_S;
+        float az_row_y  = alt_row_y - FONT_S - 6.0f;
+        float gps_row_y = az_row_y  - FONT_S - 6.0f;
+        float dbg_row_y = gps_row_y - FONT_S - 6.0f;
+
+        // ALT
+        char alt_label[24];
+        if (pointing_received) snprintf(alt_label, sizeof(alt_label), "ALT %06.2f", alt_mas / 3600000.0f);
+        else snprintf(alt_label, sizeof(alt_label), "ALT ---.--");
+        float alt_tw = MonoWidth(alt_label, FONT_S);
+        MonoText(alt_label, right_x - alt_tw, alt_row_y, FONT_S, pointing_received ? DisplayColor() : DimColor());
+
+        // AZ
+        char az_label[24];
+        if (pointing_received) snprintf(az_label, sizeof(az_label), "AZ  %06.2f", az_mas / 3600000.0f);
+        else snprintf(az_label, sizeof(az_label), "AZ  ---.--");
+        float az_tw = MonoWidth(az_label, FONT_S);
+        MonoText(az_label, right_x - az_tw, az_row_y, FONT_S, pointing_received ? DisplayColor() : DimColor());
+
+        // GPS
         bool has_fix = (gps_received && num_sats > 0);
         Color gps_color = has_fix ? DisplayColor() : DimColor();
         char gps_label[16];
         snprintf(gps_label, sizeof(gps_label), "GPS %02d", num_sats);
         float gps_tw = MonoWidth(gps_label, FONT_S);
-        float gps_row_y = bottom_y - FONT_S;
         float gps_text_x = right_x - gps_tw;
         DrawCircleV({gps_text_x - 16.0f, gps_row_y + FONT_S / 2.0f}, 6.0f, gps_color);
         MonoText(gps_label, gps_text_x, gps_row_y, FONT_S, gps_color);
 
+        // DBG
         Color dbg_color = (ping_flash_timer > 0.0f) ? DisplayColor() : DimColor();
         const char* dbg_label = "DBG";
         float dbg_tw = MonoWidth(dbg_label, FONT_S);
-        float dbg_row_y = gps_row_y - FONT_S - 6.0f;
         float dbg_text_x = right_x - dbg_tw;
         DrawCircleV({dbg_text_x - 16.0f, dbg_row_y + FONT_S / 2.0f}, 6.0f, dbg_color);
         MonoText(dbg_label, dbg_text_x, dbg_row_y, FONT_S, dbg_color);

@@ -20,6 +20,7 @@ enum PacketId : uint8_t {
 	PACKET_FOV_OBJECTS  = 0x06,
 	PACKET_TIME_MODE        = 0x07,
 	PACKET_SEARCH_GUIDANCE  = 0x08,
+	PACKET_POINTING         = 0x09,
 	PACKET_TIME             = 0x10,
 	PACKET_DEBUG        = 0xFF,
 };
@@ -74,6 +75,11 @@ struct StateSyncPayload {
 	uint8_t  flags;
 	uint8_t  overlay_visible;
 	uint16_t sequence;
+};
+
+struct PointingPayload {
+	int32_t alt;
+	int32_t az;
 };
 
 struct DsoTargetPayload {

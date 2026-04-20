@@ -47,6 +47,9 @@ static void dispatch(uint8_t packet_id, const uint8_t* payload, uint8_t length) 
 	case PACKET_SEARCH_GUIDANCE:
 		if (length >= sizeof(SearchGuidancePayload)) g_shared_state.updateSearchGuidance(payload);
 		break;
+	case PACKET_POINTING:
+		if (length >= sizeof(PointingPayload)) g_shared_state.updatePointing(payload);
+		break;
 	default:
 		break;
 	}
