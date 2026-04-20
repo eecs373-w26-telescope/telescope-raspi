@@ -1,0 +1,13 @@
+[Unit]
+Description=Telescope HUD
+After=multi-user.target
+
+[Service]
+ExecStart=/home/raspi/telescope-raspi/build/373-telescope
+WorkingDirectory=/home/raspi/telescope-raspi
+User=raspi
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
