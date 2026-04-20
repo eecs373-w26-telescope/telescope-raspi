@@ -18,7 +18,7 @@ void InitDisplay() {
 static void DrawScene() {
 	TelescopeState state = GetTelescopeState();
 
-	if (state == TelescopeState::IDLE || state == TelescopeState::SEARCH || state == TelescopeState::FOUND) {
+	if (IsOverlayVisible() && (state == TelescopeState::IDLE || state == TelescopeState::SEARCH || state == TelescopeState::FOUND)) {
 		DrawSky();
 	}
 
