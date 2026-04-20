@@ -60,30 +60,6 @@ static uint32_t GetPropertyId(int fd, uint32_t object_id, uint32_t object_type, 
     return result;
 }
 
-static void LogPlaneProperties(int fd, uint32_t plane_id) {
-    drmModeObjectPropertiesPtr props = drmModeObjectGetProperties(fd, plane_id, DRM_MODE_OBJECT_PLANE);
-    if (!props) return;
-    LOG("drm_mirror: properties for plane %u:\n", plane_id);
-    for (uint32_t i = 0; i < props->count_props; i++) {
-        drmModePropertyPtr prop = drmModeGetProperty(fd, props->props[i]);
-        if (prop) {
-            LOG("  - %s (id %u, value %llu)\n", prop->name, prop->prop_id, props->prop_values[i]);
-            if (prop->flags & DRM_MODE_PROP_ENUM) {
-                for (int j = 0; j < prop->count_enums; j++) {
-                    LOG("    * enum %d: %s (value %llu)\n", j, prop->enums[j].name, prop->enums[j].value);
-                }
-            }
-            if (prop->flags & DRM_MODE_PROP_BITMASK) {
-                for (int j = 0; j < prop->count_enums; j++) {
-                    LOG("    * bit %d: %s (value 0x%llx)\n", j, prop->enums[j].name, (1ULL << prop->enums[j].value));
-                }
-            }
-            drmModeFreeProperty(prop);
-        }
-    }
-    drmModeFreeObjectProperties(props);
-}
-
 struct SecondaryDisplay {
     uint32_t connector_id;
     uint32_t crtc_id;
@@ -94,7 +70,7 @@ struct SecondaryDisplay {
 
 static void MirrorLoop() {
     g_log = fopen("/tmp/drm_mirror.log", "w");
-    LOG("--- drm_mirror: Diagnostic & Stability Session ---\n");
+    LOG("--- drm_mirror: High-Stability Session ---\n");
     
     sleep(2);
     int fd = -1;
@@ -102,7 +78,7 @@ static void MirrorLoop() {
         fd = FindDRMMasterFd();
         if (fd < 0) usleep(100000);
     }
-    if (fd < 0) { LOG("drm_mirror: FATAL: Master FD not found\n"); return; }
+    if (fd < 0) return;
     
     drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
     drmModeResPtr res = drmModeGetResources(fd);
@@ -117,7 +93,6 @@ static void MirrorLoop() {
             last_fb = c->buffer_id;
             drmModeFBPtr fb = drmModeGetFB(fd, last_fb);
             if (fb) { fb_w = fb->width; fb_h = fb->height; drmModeFreeFB(fb); }
-            LOG("drm_mirror: primary CRTC %u active (fb %u, %dx%d)\n", primary_crtc_id, last_fb, fb_w, fb_h);
             drmModeFreeCrtc(c);
             break;
         }
@@ -131,14 +106,16 @@ static void MirrorLoop() {
         drmModeConnectorPtr conn = drmModeGetConnector(fd, res->connectors[i]);
         if (!conn || conn->connection != DRM_MODE_CONNECTED) { if (conn) drmModeFreeConnector(conn); continue; }
         
-        bool is_primary = false;
+        bool in_use = false;
         if (conn->encoder_id) {
             drmModeEncoderPtr enc = drmModeGetEncoder(fd, conn->encoder_id);
-            if (enc && enc->crtc_id == primary_crtc_id) is_primary = true;
-            if (enc) drmModeFreeEncoder(enc);
+            if (enc) {
+                if (enc->crtc_id == primary_crtc_id) in_use = true;
+                drmModeFreeEncoder(enc);
+            }
         }
 
-        if (!is_primary) {
+        if (!in_use) {
             uint32_t chosen_crtc = 0;
             int chosen_idx = -1;
             for (int c = 0; c < res->count_crtcs && !chosen_crtc; c++) {
@@ -169,34 +146,26 @@ static void MirrorLoop() {
         drmModeFreeConnector(conn);
     }
 
+    // --- INITIAL SETUP ONLY ---
     for (auto& disp : secondary_displays) {
-        LOG("drm_mirror: setting up secondary display (CRTC %u, Plane %u)\n", disp.crtc_id, disp.plane_id);
-        LogPlaneProperties(fd, disp.plane_id);
-        
-        // Initial force
         drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
-        
+        drmModeSetCursor(fd, disp.crtc_id, 0, 0, 0); // Kill the hardware cursor
+
         if (disp.plane_id) {
             uint32_t rot_id = GetPropertyId(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
             if (rot_id) {
-                // We'll set this once and leave it alone to avoid flickering
-                // Try 4 (Rotate 180) as it's the most common hardware flip
-                int r = drmModeObjectSetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 4);
-                LOG("drm_mirror: set rotation (4) res %d\n", r);
+                // Use Rotate-180 (Value 4) as it was the only one accepted by hardware
+                drmModeObjectSetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 4);
             }
-            drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0,
-                            0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
-                            0, 0, fb_w << 16, fb_h << 16);
         }
-        
-        // Disable overlay planes on THIS CRTC only to stop bleeding
+
+        // Wipe overlay planes on THIS CRTC only to stop bleeding
         if (planes) {
             for (uint32_t p = 0; p < planes->count_planes; p++) {
                 drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[p]);
                 if (plane) {
                     if (plane->crtc_id == disp.crtc_id && plane->plane_id != disp.plane_id) {
                         drmModeSetPlane(fd, plane->plane_id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-                        LOG("drm_mirror: disabled overlay plane %u on secondary CRTC\n", plane->plane_id);
                     }
                     drmModeFreePlane(plane);
                 }
@@ -204,28 +173,26 @@ static void MirrorLoop() {
         }
     }
 
-    LOG("drm_mirror: main loop started (PageFlip updates)\n");
+    LOG("drm_mirror: entering main loop (Stable SetPlane Updates)\n");
     while (g_running) {
         drmModeCrtcPtr curr = drmModeGetCrtc(fd, primary_crtc_id);
         if (curr) {
             if (curr->buffer_id != 0 && curr->buffer_id != last_fb) {
                 last_fb = curr->buffer_id;
                 for (auto& disp : secondary_displays) {
-                    // PageFlip is hardware-synced and shouldn't flicker
-                    if (drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr) != 0) {
-                        // Fallback only if PageFlip is totally broken
-                        if (disp.plane_id) {
-                            drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0,
-                                            0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
-                                            0, 0, fb_w << 16, fb_h << 16);
-                        }
+                    // SetPlane is much more stable than PageFlip for scaled/rotated output
+                    if (disp.plane_id) {
+                        drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0,
+                                        0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
+                                        0, 0, fb_w << 16, fb_h << 16);
+                    } else {
+                        drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr);
                     }
                 }
             }
             drmModeFreeCrtc(curr);
         }
-        // Poll slower to let the GPU breathe
-        usleep(10000); 
+        usleep(8333); // 120Hz poll for low latency
     }
     
     if (planes) drmModeFreePlaneResources(planes);
