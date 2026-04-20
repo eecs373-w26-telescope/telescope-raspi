@@ -72,6 +72,7 @@ struct ImuPayload {
 struct StateSyncPayload {
 	uint8_t  state;
 	uint8_t  flags;
+	uint8_t  overlay_visible;
 	uint16_t sequence;
 };
 

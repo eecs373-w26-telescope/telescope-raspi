@@ -22,7 +22,9 @@ static void DrawScene() {
 		DrawSky();
 	}
 
-	DrawHud();
+	if (IsOverlayVisible()) {
+		DrawHud();
+	}
 }
 
 void DrawFrame() {

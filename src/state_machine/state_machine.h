@@ -12,3 +12,4 @@ enum class TelescopeState : uint8_t {
 void InitStateMachine();
 void UpdateStateMachine();
 TelescopeState GetTelescopeState();
+bool IsOverlayVisible();

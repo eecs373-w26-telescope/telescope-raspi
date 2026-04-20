@@ -18,3 +18,8 @@ void UpdateStateMachine() {
 TelescopeState GetTelescopeState() {
 	return current_state;
 }
+
+bool IsOverlayVisible() {
+	std::lock_guard<std::mutex> lock(g_shared_state.mtx);
+	return g_shared_state.state_sync.overlay_visible != 0;
+}
