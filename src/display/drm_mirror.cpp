@@ -61,6 +61,20 @@ static uint32_t GetPropertyId(int fd, uint32_t object_id, uint32_t object_type, 
     return result;
 }
 
+static void LogRotationSupport(int fd, uint32_t plane_id) {
+    uint32_t prop_id = GetPropertyId(fd, plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
+    if (!prop_id) { LOG("drm_mirror: plane %u has NO rotation property\n", plane_id); return; }
+    
+    drmModePropertyPtr prop = drmModeGetProperty(fd, prop_id);
+    if (prop) {
+        LOG("drm_mirror: plane %u rotation support:\n", plane_id);
+        for (int i = 0; i < prop->count_enums; i++) {
+            LOG("  - %s: bit %llu (val %llu)\n", prop->enums[i].name, prop->enums[i].value, (1ULL << prop->enums[i].value));
+        }
+        drmModeFreeProperty(prop);
+    }
+}
+
 struct SecondaryDisplay {
     uint32_t connector_id;
     uint32_t crtc_id;
@@ -71,14 +85,16 @@ struct SecondaryDisplay {
 
 static void MirrorLoop() {
     g_log = fopen("/tmp/drm_mirror.log", "w");
-    LOG("--- drm_mirror: Double-Wide Sync Session ---\n");
+    LOG("--- drm_mirror: Reliable Sync Session ---\n");
     
-    // Real-time priority for zero jitter
     struct sched_param param;
     param.sched_priority = sched_get_priority_max(SCHED_FIFO);
     pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
 
     sleep(3);
+    system("echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/dev/null");
+    system("echo 0 > /sys/class/vtconsole/vtcon0/bind 2>/dev/null");
+
     int fd = -1;
     for (int i = 0; i < 50 && fd < 0; i++) {
         fd = FindDRMMasterFd();
@@ -106,7 +122,6 @@ static void MirrorLoop() {
         }
         if (c) drmModeFreeCrtc(c);
     }
-    if (!primary_crtc_id) return;
 
     std::vector<SecondaryDisplay> secondary_displays;
     drmModePlaneResPtr planes = drmModeGetPlaneResources(fd);
@@ -115,14 +130,14 @@ static void MirrorLoop() {
         drmModeConnectorPtr conn = drmModeGetConnector(fd, res->connectors[i]);
         if (!conn || conn->connection != DRM_MODE_CONNECTED) { if (conn) drmModeFreeConnector(conn); continue; }
         
-        bool is_primary = false;
+        bool in_use = false;
         if (conn->encoder_id) {
             drmModeEncoderPtr enc = drmModeGetEncoder(fd, conn->encoder_id);
-            if (enc && enc->crtc_id == primary_crtc_id) is_primary = true;
+            if (enc && enc->crtc_id == primary_crtc_id) in_use = true;
             if (enc) drmModeFreeEncoder(enc);
         }
 
-        if (!is_primary) {
+        if (!in_use) {
             uint32_t chosen_crtc = 0;
             int chosen_idx = -1;
             for (int c = 0; c < res->count_crtcs && !chosen_crtc; c++) {
@@ -153,21 +168,34 @@ static void MirrorLoop() {
         drmModeFreeConnector(conn);
     }
 
-    // Initialize
     for (auto& disp : secondary_displays) {
         drmModeSetCrtc(fd, disp.crtc_id, last_fb, 0, 0, &disp.connector_id, 1, &disp.mode);
-        // Disable cursor
-        drmModeSetCursor(fd, disp.crtc_id, 0, 0, 0);
-        // Reset rotation to identity (0) because we are doing the flip in software now
+        LogRotationSupport(fd, disp.plane_id);
+        
         if (disp.plane_id) {
             uint32_t rot_id = GetPropertyId(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, "rotation");
-            if (rot_id) drmModeObjectSetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 1);
+            if (rot_id) {
+                // Try 180 Rotation (Bit 2 = Val 4)
+                drmModeObjectSetProperty(fd, disp.plane_id, DRM_MODE_OBJECT_PLANE, rot_id, 4);
+            }
+            drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0, 0, 0, disp.mode.hdisplay, disp.mode.vdisplay, 0, 0, fb_w << 16, fb_h << 16);
+        }
+        // Scrub ONLY this CRTC
+        if (planes) {
+            for (uint32_t p = 0; p < planes->count_planes; p++) {
+                drmModePlanePtr plane = drmModeGetPlane(fd, planes->planes[p]);
+                if (plane) {
+                    if (plane->crtc_id == disp.crtc_id && plane->plane_id != disp.plane_id) {
+                        drmModeSetPlane(fd, plane->plane_id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                    }
+                    drmModeFreePlane(plane);
+                }
+            }
         }
     }
 
-    LOG("drm_mirror: main loop started (Offset Updates)\n");
+    LOG("drm_mirror: entering main loop\n");
     while (g_running) {
-        // Wait for Primary VBlank
         drmVBlank vbl = {};
         vbl.request.type = (drmVBlankSeqType) (DRM_VBLANK_RELATIVE | (primary_crtc_idx << DRM_VBLANK_HIGH_CRTC_SHIFT));
         vbl.request.sequence = 1;
@@ -178,22 +206,13 @@ static void MirrorLoop() {
             if (curr->buffer_id != 0 && curr->buffer_id != last_fb) {
                 last_fb = curr->buffer_id;
                 for (auto& disp : secondary_displays) {
-                    if (disp.plane_id) {
-                        // Software-Side logic: 
-                        // The Primary monitor shows FB pixels [0 to fb_w/2]
-                        // The Secondary monitor shows FB pixels [fb_w/2 to fb_w] (which are flipped)
-                        uint32_t half_w = fb_w / 2;
-                        drmModeSetPlane(fd, disp.plane_id, disp.crtc_id, last_fb, 0,
-                                        0, 0, disp.mode.hdisplay, disp.mode.vdisplay,
-                                        half_w << 16, 0, half_w << 16, fb_h << 16);
-                    } else {
-                        drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr);
-                    }
+                    // Optimized PageFlip. Only PageFlip when buffer actually changes.
+                    drmModePageFlip(fd, disp.crtc_id, last_fb, 0, nullptr);
                 }
             }
             drmModeFreeCrtc(curr);
         }
-        usleep(5000); 
+        usleep(4000); 
     }
     
     if (planes) drmModeFreePlaneResources(planes);

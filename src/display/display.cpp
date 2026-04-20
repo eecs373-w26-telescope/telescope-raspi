@@ -35,23 +35,10 @@ void DrawFrame() {
 
 	BeginDrawing();
 	ClearBackground(BLACK);
-	
-	// Left side (0 to screenRes): Primary monitor content
-	// Uses existing DISPLAY_FLIP logic
-	float src_h1 = DISPLAY_FLIP ? (float)screenRes : -(float)screenRes;
-	DrawTexturePro(framebuffer.texture, 
-		{0, 0, (float)screenRes, src_h1}, 
-		{0, 0, (float)screenRes, (float)screenRes}, 
-		{0, 0}, 0, WHITE);
-
-	// Right side (screenRes to 2*screenRes): Secondary monitor content
-	// Forced vertical flip as requested (opposite of the standard orientation)
-	float src_h2 = (DISPLAY_FLIP == 0) ? (float)screenRes : -(float)screenRes;
-	DrawTexturePro(framebuffer.texture, 
-		{0, 0, (float)screenRes, src_h2}, 
-		{(float)screenRes, 0, (float)screenRes, (float)screenRes}, 
-		{0, 0}, 0, WHITE);
-
+	float src_h = DISPLAY_FLIP ? (float)screenRes : -(float)screenRes;
+	Rectangle src = {0, 0, (float)screenRes, src_h};
+	Rectangle dst = {0, 0, (float)screenRes, (float)screenRes};
+	DrawTexturePro(framebuffer.texture, src, dst, {0, 0}, 0, WHITE);
 	EndDrawing();
 }
 
