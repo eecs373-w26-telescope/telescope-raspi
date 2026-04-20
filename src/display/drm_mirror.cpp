@@ -177,7 +177,7 @@ static void MirrorLoop() {
     while (g_running) {
         // Sync to primary VBlank
         drmVBlank vbl = {};
-        vbl.request.type = (drmVBlankSeq) (DRM_VBLANK_RELATIVE | (primary_crtc_idx << DRM_VBLANK_HIGH_CRTC_SHIFT));
+        vbl.request.type = (drmVBlankSeqType) (DRM_VBLANK_RELATIVE | (primary_crtc_idx << DRM_VBLANK_HIGH_CRTC_SHIFT));
         vbl.request.sequence = 1;
         drmWaitVBlank(fd, &vbl);
 
@@ -199,8 +199,8 @@ static void MirrorLoop() {
 
         // Periodic Console Kick (every ~5 seconds)
         if (++vt_kick_timer > 300) {
-            system("echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/dev/null");
-            system("echo 0 > /sys/class/vtconsole/vtcon0/bind 2>/dev/null");
+            if (system("echo 0 > /sys/class/vtconsole/vtcon1/bind 2>/dev/null") != 0) {}
+            if (system("echo 0 > /sys/class/vtconsole/vtcon0/bind 2>/dev/null") != 0) {}
             vt_kick_timer = 0;
         }
     }
